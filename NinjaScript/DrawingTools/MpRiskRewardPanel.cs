@@ -16,6 +16,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using NinjaTrader.Cbi;
 using NinjaTrader.Gui.Tools;
 using NinjaTrader.Gui.Chart;
 using NinjaTrader.NinjaScript.DrawingTools;
@@ -29,6 +30,25 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         Short
     }
 
+    public enum MpTargetMode
+    {
+        Single,
+        Split
+    }
+
+    public enum MpShiftSnapMode
+    {
+        EvenPrice,
+        FromOP
+    }
+
+    public enum MpPanelLanguage
+    {
+        PL,
+        EN,
+        DE
+    }
+
     public class MpRiskRewardPanel : DrawingTool
     {
         private const int CursorSensitivity = 15;
@@ -36,11 +56,16 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private ChartAnchor entryAnchor;
         private ChartAnchor stopAnchor;
         private ChartAnchor targetAnchor;
+        private ChartAnchor target2Anchor;
+        private ChartAnchor target3Anchor;
         private ChartAnchor editingAnchor;
         private bool isDetachedFromPrice;
         private bool offsetsInitialized;
         private double stopOffsetFromEntry;
         private double targetOffsetFromEntry;
+        private double target2OffsetFromEntry;
+        private double target3OffsetFromEntry;
+        private double finalTargetOffsetFromEntry;
         private double lastPanelLeft;
         private double lastPanelRight;
         private double lastPanelCenterX;
@@ -58,27 +83,62 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private Rect buyButton;
         private Rect sellButton;
         private Rect toolbarDirectionButton;
+        private Rect targetLevelsButton;
         private Rect targetDragRect;
+        private Rect target2DragRect;
+        private Rect target3DragRect;
         private Rect entryDragRect;
         private Rect stopDragRect;
         private bool suppressNextMouseUpSelection;
         private DateTime lastQuantityButtonClick = DateTime.MinValue;
+        private DateTime lastPanelQuantityWrite = DateTime.MinValue;
+        private DateTime lastTargetLevelsButtonClick = DateTime.MinValue;
         private DateTime lastChartTraderQuantityRead = DateTime.MinValue;
+        private int pendingChartTraderQuantity;
+        private int pendingPreviousChartTraderQuantity;
+        private int lastKnownChartTraderQuantity;
+        private int ignoredChartTraderQuantityAfterPanelChange;
         private double minDistanceFromEntryPrice;
+        private string lastAutoSnapInstrumentName = string.Empty;
         private ChartControl lastChartControl;
         private DispatcherTimer chartTraderQuantityTimer;
+        private Account subscribedOrderAccount;
+        private readonly object orderLock = new object();
+        private readonly Dictionary<Order, PendingBracket> pendingBrackets = new Dictionary<Order, PendingBracket>();
+        private string orderStatusMessage = string.Empty;
+        private DateTime orderStatusMessageTime = DateTime.MinValue;
+
+        private class PendingBracket
+        {
+            public MpPanelDirection Direction { get; set; }
+            public double StopPrice { get; set; }
+            public List<double> TargetPrices { get; set; }
+            public int[] TargetQuantities { get; set; }
+        }
 
         [Range(1, int.MaxValue)]
         [NinjaScriptProperty]
-        [Display(Name = "Kontrakty", GroupName = "Parametry", Order = 1)]
+        [Display(Name = "Quantity", GroupName = "Parameters", Order = 1)]
         public int Quantity { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Kierunek", GroupName = "Parametry", Order = 2)]
+        [Display(Name = "Enable order submission", GroupName = "Orders", Order = 0)]
+        public bool EnableOrderSubmission { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Order account", GroupName = "Orders", Order = 1)]
+        public string OrderAccountName { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Simulation accounts only", GroupName = "Orders", Order = 2)]
+        public bool SimulationAccountsOnly { get; set; }
+
+        [NinjaScriptProperty]
+        [Browsable(false)]
         public MpPanelDirection Direction { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Wartosc ticka", GroupName = "Instrument", Order = 10)]
+        [Display(Name = "Tick value", GroupName = "Instrument", Order = 10)]
         public double TickValue { get; set; }
 
         [NinjaScriptProperty]
@@ -86,12 +146,37 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         public double TickSize { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Startowo przypiety do ceny", GroupName = "Parametry", Order = 3)]
+        [Display(Name = "Auto instrument", GroupName = "Instrument", Order = 12)]
+        public bool AutoInstrumentSpec { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Start attached to price", GroupName = "Parameters", Order = 3)]
         public bool StartAttachedToCurrentPrice { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Synchronizuj Chart Trader Qty", GroupName = "Parametry", Order = 4)]
+        [Display(Name = "Sync Chart Trader qty", GroupName = "Parameters", Order = 4)]
         public bool SyncChartTraderQuantity { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Panel language", GroupName = "Parameters", Order = 0)]
+        public MpPanelLanguage PanelLanguage { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP mode", GroupName = "Parameters", Order = 5)]
+        public MpTargetMode TargetMode { get; set; }
+
+        [Range(1, 3)]
+        [NinjaScriptProperty]
+        [Display(Name = "Split TP levels", GroupName = "Parameters", Order = 6)]
+        public int TargetLevels { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Shift snap step", GroupName = "Parameters", Order = 7)]
+        public double ShiftSnapPoints { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Shift snap mode", GroupName = "Parameters", Order = 8)]
+        public MpShiftSnapMode ShiftSnapMode { get; set; }
 
         public override object Icon => "RR";
 
@@ -105,6 +190,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                     yield return stopAnchor;
                 if (targetAnchor != null)
                     yield return targetAnchor;
+                if (target2Anchor != null && GetEffectiveTargetLevels() >= 2)
+                    yield return target2Anchor;
+                if (target3Anchor != null && GetEffectiveTargetLevels() >= 3)
+                    yield return target3Anchor;
             }
         }
 
@@ -113,14 +202,23 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             if (State == State.SetDefaults)
             {
                 Name = "MrRexo Panel";
-                Description = "Interaktywny panel ryzyka i zysku dla jednego TP i jednego SL.";
+                Description = "Interaktywny panel ryzyka i zysku z maksymalnie trzema poziomami TP i jednym SL.";
                 DrawingState = DrawingState.Building;
                 Quantity = 1;
+                EnableOrderSubmission = true;
+                OrderAccountName = "Sim101";
+                SimulationAccountsOnly = true;
+                PanelLanguage = MpPanelLanguage.EN;
+                TargetMode = MpTargetMode.Single;
+                TargetLevels = 1;
+                ShiftSnapPoints = 0;
+                ShiftSnapMode = MpShiftSnapMode.EvenPrice;
                 Direction = MpPanelDirection.Long;
                 StartAttachedToCurrentPrice = true;
                 SyncChartTraderQuantity = true;
                 TickSize = 0.25;
                 TickValue = 0.50;
+                AutoInstrumentSpec = true;
                 DisplayOnChartsMenus = true;
 
                 entryAnchor = new ChartAnchor
@@ -143,7 +241,23 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 {
                     IsEditing = true,
                     DrawingTool = this,
-                    DisplayName = "Take Profit",
+                    DisplayName = "TP1",
+                    IsBrowsable = true
+                };
+
+                target2Anchor = new ChartAnchor
+                {
+                    IsEditing = true,
+                    DrawingTool = this,
+                    DisplayName = "TP2",
+                    IsBrowsable = true
+                };
+
+                target3Anchor = new ChartAnchor
+                {
+                    IsEditing = true,
+                    DrawingTool = this,
+                    DisplayName = "TP3",
                     IsBrowsable = true
                 };
             }
@@ -164,6 +278,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                     chartTraderQuantityTimer.Tick -= ChartTraderQuantityTimerTick;
                     chartTraderQuantityTimer = null;
                 }
+
+                UnsubscribeOrderAccount();
             }
         }
 
@@ -177,30 +293,25 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         public override void OnMouseDown(ChartControl chartControl, ChartPanel chartPanel, ChartScale chartScale, ChartAnchor dataPoint)
         {
+            UpdateInstrumentSpecFromChart();
+
             if (DrawingState == DrawingState.Building)
             {
                 dataPoint.CopyDataValues(entryAnchor);
                 dataPoint.CopyDataValues(stopAnchor);
                 dataPoint.CopyDataValues(targetAnchor);
-
-                if (Direction == MpPanelDirection.Long)
-                {
-                    stopAnchor.Price = RoundToTick(entryAnchor.Price - GetPriceDistanceForDollars(50));
-                    targetAnchor.Price = RoundToTick(entryAnchor.Price + GetPriceDistanceForDollars(100));
-                }
-                else
-                {
-                    stopAnchor.Price = RoundToTick(entryAnchor.Price + GetPriceDistanceForDollars(50));
-                    targetAnchor.Price = RoundToTick(entryAnchor.Price - GetPriceDistanceForDollars(100));
-                }
+                dataPoint.CopyDataValues(target2Anchor);
+                dataPoint.CopyDataValues(target3Anchor);
+                SetInitialRiskRewardLevels(chartScale);
 
                 entryAnchor.IsEditing = false;
                 stopAnchor.IsEditing = false;
                 targetAnchor.IsEditing = false;
+                target2Anchor.IsEditing = false;
+                target3Anchor.IsEditing = false;
                 isDetachedFromPrice = !StartAttachedToCurrentPrice;
                 offsetsInitialized = true;
-                stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
-                targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+                UpdateOffsetsFromAnchors();
                 DrawingState = DrawingState.Normal;
                 IsSelected = true;
                 return;
@@ -225,6 +336,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 if (TryHandleToolbarDirectionButton(point))
                     return;
 
+                if (TryHandleTargetLevelsButton(point))
+                    return;
+
                 if (TryHandleDirectionButton(point))
                     return;
 
@@ -246,25 +360,20 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         public override void OnMouseMove(ChartControl chartControl, ChartPanel chartPanel, ChartScale chartScale, ChartAnchor dataPoint)
         {
-            if (entryAnchor == null || stopAnchor == null || targetAnchor == null)
+            if (entryAnchor == null || stopAnchor == null || targetAnchor == null || target2Anchor == null || target3Anchor == null)
                 return;
+
+            if (DrawingState == DrawingState.Building)
+                UpdateInstrumentSpecFromChart();
 
             if (DrawingState == DrawingState.Building)
             {
                 dataPoint.CopyDataValues(entryAnchor);
                 dataPoint.CopyDataValues(stopAnchor);
                 dataPoint.CopyDataValues(targetAnchor);
-
-                if (Direction == MpPanelDirection.Long)
-                {
-                    stopAnchor.Price = RoundToTick(entryAnchor.Price - GetPriceDistanceForDollars(50));
-                    targetAnchor.Price = RoundToTick(entryAnchor.Price + GetPriceDistanceForDollars(100));
-                }
-                else
-                {
-                    stopAnchor.Price = RoundToTick(entryAnchor.Price + GetPriceDistanceForDollars(50));
-                    targetAnchor.Price = RoundToTick(entryAnchor.Price - GetPriceDistanceForDollars(100));
-                }
+                dataPoint.CopyDataValues(target2Anchor);
+                dataPoint.CopyDataValues(target3Anchor);
+                SetInitialRiskRewardLevels(chartScale);
             }
             else if (DrawingState == DrawingState.Editing && editingAnchor != null)
             {
@@ -272,22 +381,40 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
                 if (editingAnchor == entryAnchor)
                 {
+                    newPrice = ApplyShiftSnapToEntryPrice(newPrice);
+                    double finalTargetOffset = Math.Abs(finalTargetOffsetFromEntry) >= TickSize
+                        ? finalTargetOffsetFromEntry
+                        : GetCurrentFinalTargetPrice() - entryAnchor.Price;
                     double priceDelta = newPrice - entryAnchor.Price;
                     entryAnchor.Price = newPrice;
                     stopAnchor.Price = RoundToTick(stopAnchor.Price + priceDelta);
-                    targetAnchor.Price = RoundToTick(targetAnchor.Price + priceDelta);
-                    stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
-                    targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+                    finalTargetOffsetFromEntry = finalTargetOffset;
+                    DistributeTargetsToFinalTarget(RoundToTick(entryAnchor.Price + finalTargetOffsetFromEntry), false);
+                    UpdateOffsetsFromAnchors();
                 }
                 else if (editingAnchor == stopAnchor)
                 {
+                    newPrice = ApplyShiftSnapToPrice(newPrice, false);
                     stopAnchor.Price = ClampStopPrice(newPrice);
                     stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
                 }
                 else if (editingAnchor == targetAnchor)
                 {
+                    newPrice = ApplyShiftSnapToPrice(newPrice, true);
                     targetAnchor.Price = ClampTargetPrice(newPrice);
-                    targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+                    DistributeTargetsToFinalTarget(targetAnchor.Price, true);
+                }
+                else if (editingAnchor == target2Anchor)
+                {
+                    newPrice = ApplyShiftSnapToPrice(newPrice, true);
+                    target2Anchor.Price = ClampTargetPrice(newPrice);
+                    DistributeTargetsToFinalTarget(target2Anchor.Price, true);
+                }
+                else if (editingAnchor == target3Anchor)
+                {
+                    newPrice = ApplyShiftSnapToPrice(newPrice, true);
+                    target3Anchor.Price = ClampTargetPrice(newPrice);
+                    DistributeTargetsToFinalTarget(target3Anchor.Price, true);
                 }
                 else
                     editingAnchor.Price = newPrice;
@@ -324,7 +451,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             if (DrawingState == DrawingState.Building)
                 return Cursors.Pen;
 
-            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
+            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
                 return Cursors.Hand;
 
             ChartAnchor closestAnchor = GetPanelDragAnchor(chartScale, point);
@@ -333,11 +460,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         public override void OnRender(ChartControl chartControl, ChartScale chartScale)
         {
-            if (entryAnchor == null || stopAnchor == null || targetAnchor == null || ChartPanel == null)
+            if (entryAnchor == null || stopAnchor == null || targetAnchor == null || target2Anchor == null || target3Anchor == null || ChartPanel == null)
                 return;
 
             lastChartControl = chartControl;
+            UpdateInstrumentSpecFromChart();
             SyncPanelQuantityFromChartTrader(chartControl);
+            NormalizeTargetLevels();
             UpdateAutoFollowPrice();
 
             double left = GetPanelLeftX(chartControl);
@@ -355,17 +484,20 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             Point entry = new Point(lastPanelCenterX, chartScale.GetYByValue(entryAnchor.Price));
             Point stop = new Point(lastPanelCenterX, chartScale.GetYByValue(stopAnchor.Price));
             Point target = new Point(lastPanelCenterX, chartScale.GetYByValue(targetAnchor.Price));
+            Point target2 = new Point(lastPanelCenterX, chartScale.GetYByValue(target2Anchor.Price));
+            Point target3 = new Point(lastPanelCenterX, chartScale.GetYByValue(target3Anchor.Price));
+            List<Point> targetPoints = GetActiveTargetPoints(target, target2, target3);
             minDistanceFromEntryPrice = CalculateEntryVisualBufferPrice(chartScale, entry.Y);
 
-            double top = Math.Min(target.Y, stop.Y);
-            double bottom = Math.Max(target.Y, stop.Y);
+            double top = Math.Min(stop.Y, targetPoints.Min(tp => tp.Y));
+            double bottom = Math.Max(stop.Y, targetPoints.Max(tp => tp.Y));
 
-            DrawPanelBackground(chartControl, left, right, top, bottom, entry.Y, target.Y, stop.Y);
-            DrawVirtualLevelLines(left, target.Y, stop.Y);
-            DrawPanelLabels(chartControl, left, right, entry, stop, target);
+            DrawPanelBackground(chartControl, left, right, top, bottom, entry.Y, targetPoints, stop.Y);
+            DrawVirtualLevelLines(left, targetPoints, stop.Y);
+            DrawPanelLabels(chartControl, left, right, entry, stop, targetPoints);
         }
 
-        private void DrawVirtualLevelLines(double panelLeft, double targetY, double stopY)
+        private void DrawVirtualLevelLines(double panelLeft, List<Point> targetPoints, double stopY)
         {
             if (RenderTarget == null || ChartPanel == null)
                 return;
@@ -384,12 +516,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 EndCap = SharpDX.Direct2D1.CapStyle.Flat
             }))
             {
-                RenderTarget.DrawLine(new SharpDX.Vector2(startX, (float)targetY), new SharpDX.Vector2(endX, (float)targetY), tpBrush, 1f, strokeStyle);
+                foreach (Point targetPoint in targetPoints)
+                    RenderTarget.DrawLine(new SharpDX.Vector2(startX, (float)targetPoint.Y), new SharpDX.Vector2(endX, (float)targetPoint.Y), tpBrush, 1f, strokeStyle);
                 RenderTarget.DrawLine(new SharpDX.Vector2(startX, (float)stopY), new SharpDX.Vector2(endX, (float)stopY), slBrush, 1f, strokeStyle);
             }
         }
 
-        private void DrawPanelBackground(ChartControl chartControl, double left, double right, double top, double bottom, double entryY, double targetY, double stopY)
+        private void DrawPanelBackground(ChartControl chartControl, double left, double right, double top, double bottom, double entryY, List<Point> targetPoints, double stopY)
         {
             if (RenderTarget == null)
                 return;
@@ -406,16 +539,18 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 float headerHeight = 28f;
                 float entryHeight = 30f;
 
-                float profitTop = (float)Math.Min(targetY, entryY);
-                float profitBottom = (float)Math.Max(targetY, entryY);
+                double farthestTargetY = targetPoints.OrderByDescending(tp => Math.Abs(tp.Y - entryY)).First().Y;
+                float profitTop = (float)Math.Min(farthestTargetY, entryY);
+                float profitBottom = (float)Math.Max(farthestTargetY, entryY);
                 float riskTop = (float)Math.Min(stopY, entryY);
                 float riskBottom = (float)Math.Max(stopY, entryY);
-                float targetHeaderY = (float)(targetY < entryY ? targetY - headerHeight : targetY);
                 float stopHeaderY = (float)(stopY < entryY ? stopY - headerHeight : stopY);
-                float outlineTop = Math.Min(targetHeaderY, stopHeaderY);
-                float outlineBottom = Math.Max(targetHeaderY + headerHeight, stopHeaderY + headerHeight);
+                float outlineTop = Math.Min((float)targetPoints.Min(tp => tp.Y) - headerHeight, stopHeaderY);
+                float outlineBottom = Math.Max((float)targetPoints.Max(tp => tp.Y) + headerHeight, stopHeaderY + headerHeight);
 
-                targetDragRect = new Rect(left, targetHeaderY, right - left, headerHeight);
+                targetDragRect = Rect.Empty;
+                target2DragRect = Rect.Empty;
+                target3DragRect = Rect.Empty;
                 entryDragRect = new Rect(left, entryY - entryHeight / 2, right - left, entryHeight);
                 stopDragRect = new Rect(left, stopHeaderY, right - left, headerHeight);
 
@@ -423,41 +558,85 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 RenderTarget.FillRectangle(new SharpDX.RectangleF(x, riskTop, width, riskBottom - riskTop), riskBrush);
                 RenderTarget.FillRectangle(new SharpDX.RectangleF(x, (float)entryY - entryHeight / 2, width, entryHeight), entryBrush);
 
-                RenderTarget.FillRectangle(new SharpDX.RectangleF(x, targetHeaderY, width, headerHeight), greenHeaderBrush);
+                for (int i = 0; i < targetPoints.Count; i++)
+                {
+                    float targetHeaderY = (float)(targetPoints[i].Y < entryY ? targetPoints[i].Y - headerHeight : targetPoints[i].Y);
+                    Rect targetRect = new Rect(left, targetHeaderY, right - left, headerHeight);
+                    if (i == targetPoints.Count - 1)
+                    {
+                        if (i == 0)
+                            targetDragRect = targetRect;
+                        else if (i == 1)
+                            target2DragRect = targetRect;
+                        else if (i == 2)
+                            target3DragRect = targetRect;
+                    }
+
+                    RenderTarget.FillRectangle(new SharpDX.RectangleF(x, targetHeaderY, width, headerHeight), greenHeaderBrush);
+                }
                 RenderTarget.FillRectangle(new SharpDX.RectangleF(x, stopHeaderY, width, headerHeight), redHeaderBrush);
                 RenderTarget.DrawRectangle(new SharpDX.RectangleF(x, outlineTop, width, outlineBottom - outlineTop), outlineBrush, 1.5f);
             }
         }
 
-        private void DrawPanelLabels(ChartControl chartControl, double left, double right, Point entry, Point stop, Point target)
+        private void DrawPanelLabels(ChartControl chartControl, double left, double right, Point entry, Point stop, List<Point> targetPoints)
         {
             if (RenderTarget == null || entryAnchor == null || stopAnchor == null || targetAnchor == null)
                 return;
 
             double stopTicks = CalculateTicks(entryAnchor.Price, stopAnchor.Price);
-            double targetTicks = CalculateTicks(entryAnchor.Price, targetAnchor.Price);
             double risk = CalculateMoney(stopTicks);
-            double reward = CalculateMoney(targetTicks);
+            double reward = CalculateTotalReward();
             double rr = risk <= 0 ? 0 : reward / risk;
 
             double panelWidth = right - left;
-            double targetLabelY = target.Y < entry.Y ? target.Y - 24 : target.Y + 4;
             double stopLabelY = stop.Y < entry.Y ? stop.Y - 24 : stop.Y + 4;
-            const double halfEntryBarHeight = 15.0;
-            double profitTextTop = target.Y < entry.Y ? target.Y : entry.Y + halfEntryBarHeight;
-            double profitTextBottom = target.Y < entry.Y ? entry.Y - halfEntryBarHeight : target.Y;
-            double riskTextTop = stop.Y < entry.Y ? stop.Y : entry.Y + halfEntryBarHeight;
-            double riskTextBottom = stop.Y < entry.Y ? entry.Y - halfEntryBarHeight : stop.Y;
-            double profitZoneHeight = Math.Abs(profitTextBottom - profitTextTop);
-            double riskZoneHeight = Math.Abs(riskTextBottom - riskTextTop);
+            const double headerHeight = 28.0;
+            double stopHeaderY = stop.Y < entry.Y ? stop.Y - headerHeight : stop.Y;
+            double profitSummaryY;
+            double riskSummaryY;
+            if (Direction == MpPanelDirection.Short)
+            {
+                double bottomTargetY = targetPoints.Max(tp => tp.Y);
+                double bottomTargetHeaderY = bottomTargetY < entry.Y ? bottomTargetY - headerHeight : bottomTargetY;
+                profitSummaryY = Math.Min(ChartPanel.Y + ChartPanel.H - 22, bottomTargetHeaderY + headerHeight + 2);
+                riskSummaryY = Math.Max(ChartPanel.Y, stopHeaderY - 24);
+            }
+            else
+            {
+                double topTargetY = targetPoints.Min(tp => tp.Y);
+                double topTargetHeaderY = topTargetY < entry.Y ? topTargetY - headerHeight : topTargetY;
+                profitSummaryY = Math.Max(ChartPanel.Y, topTargetHeaderY - 24);
+                riskSummaryY = stopHeaderY + headerHeight + 2;
+            }
 
-            DrawText(chartControl, $"TP: {targetAnchor.Price:F2}  Zysk: {reward:F2}$", left, targetLabelY, panelWidth, 22, true, true);
+            const double halfEntryBarHeight = 15.0;
+            double riskBlockTop = Direction == MpPanelDirection.Short
+                ? stopHeaderY + headerHeight
+                : entry.Y + halfEntryBarHeight;
+            double riskBlockBottom = Direction == MpPanelDirection.Short
+                ? entry.Y - halfEntryBarHeight
+                : stopHeaderY;
+            if (riskBlockBottom - riskBlockTop >= 80)
+                DrawLargeQuantityText(chartControl, $"{T("IK")}: {Quantity}", left, riskBlockTop, panelWidth, riskBlockBottom - riskBlockTop);
+
+            List<ChartAnchor> targets = GetActiveTargetAnchors();
+            int[] splits = GetTargetQuantitySplit();
+            for (int i = 0; i < targets.Count; i++)
+            {
+                if (splits[i] <= 0)
+                    continue;
+
+                double targetLabelY = targetPoints[i].Y < entry.Y ? targetPoints[i].Y - 24 : targetPoints[i].Y + 4;
+                double targetTicks = CalculateTicks(entryAnchor.Price, targets[i].Price);
+                double targetReward = CalculateMoney(targetTicks, splits[i]);
+                DrawText(chartControl, $"TP{i + 1}: {targets[i].Price:F2}  K:{splits[i]}  +{targetReward:F2}$", left, targetLabelY, panelWidth, 22, true, true);
+            }
+
+            DrawText(chartControl, $"{T("TotalProfit")}: {reward:F2}$", left, profitSummaryY, panelWidth, 22, false, true);
             DrawText(chartControl, $"OP: {entryAnchor.Price:F2}  K: {Quantity}  [R:R {rr:F2}]", left, entry.Y - 10, panelWidth, 22, true, true);
-            if (profitZoneHeight >= 46)
-                DrawText(chartControl, $"Zysk: {targetTicks:F0} tickow / {reward:F2}$", left, Math.Min(profitTextTop, profitTextBottom), panelWidth, profitZoneHeight, false, true);
-            if (riskZoneHeight >= 46)
-                DrawText(chartControl, $"Ryzyko: {stopTicks:F0} tickow / {risk:F2}$", left, Math.Min(riskTextTop, riskTextBottom), panelWidth, riskZoneHeight, false, true);
-            DrawText(chartControl, $"SL: {stopAnchor.Price:F2}  Strata: {risk:F2}$", left, stopLabelY, panelWidth, 22, true, true);
+            DrawText(chartControl, $"SL: {stopAnchor.Price:F2}", left, stopLabelY, panelWidth, 22, true, true);
+            DrawText(chartControl, $"{T("Risk")}: {stopTicks:F0} {T("Ticks")} / {risk:F2}$", left, riskSummaryY, panelWidth, 22, false, true);
             DrawPresetButtons(chartControl);
             DrawDirectionButton(chartControl, left, entry.Y);
             DrawAttachToPriceButton(chartControl, left, entry.Y);
@@ -485,12 +664,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double gap = 3;
             double tradeWidth = 72;
             double directionWidth = 30;
-            double totalWidth = tradeWidth + gap + tradeWidth + 12 + directionWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
+            double targetLevelsWidth = 38;
+            double totalWidth = tradeWidth + gap + tradeWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
             double padding = 6;
             double toolbarWidth = totalWidth + 2 * padding;
             double toolbarHeight = h + 2 * padding;
             double x = ChartPanel.X + (ChartPanel.W - toolbarWidth) / 2.0 + padding;
-            double y = ChartPanel.Y + 8 + padding;
+            double y = ChartPanel.Y + 48 + padding;
 
             presetsToolbarRect = new Rect(x - padding, y - padding, toolbarWidth, toolbarHeight);
             DrawToolbarBackground(presetsToolbarRect);
@@ -498,7 +678,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             buyButton = new Rect(x, y, tradeWidth, h);
             sellButton = new Rect(buyButton.Right + gap, y, tradeWidth, h);
             toolbarDirectionButton = new Rect(sellButton.Right + 12, y, directionWidth, h);
-            preset1Button = new Rect(toolbarDirectionButton.Right + 12, y, 24, h);
+            targetLevelsButton = new Rect(toolbarDirectionButton.Right + gap, y, targetLevelsWidth, h);
+            preset1Button = new Rect(targetLevelsButton.Right + 12, y, 24, h);
             preset2Button = new Rect(preset1Button.Right + gap, y, 24, h);
             preset5Button = new Rect(preset2Button.Right + gap, y, 24, h);
             preset10Button = new Rect(preset5Button.Right + gap, y, 31, h);
@@ -507,11 +688,22 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawButton(chartControl, buyButton, GetBuyButtonLabel());
             DrawButton(chartControl, sellButton, GetSellButtonLabel());
             DrawButton(chartControl, toolbarDirectionButton, Direction == MpPanelDirection.Long ? "L" : "S");
+            DrawButton(chartControl, targetLevelsButton, $"TP{GetEffectiveTargetLevels()}");
             DrawButton(chartControl, preset1Button, "1");
             DrawButton(chartControl, preset2Button, "2");
             DrawButton(chartControl, preset5Button, "5");
             DrawButton(chartControl, preset10Button, "10");
             DrawButton(chartControl, preset20Button, "20");
+
+            DrawOrderStatus(chartControl, presetsToolbarRect);
+        }
+
+        private void DrawOrderStatus(ChartControl chartControl, Rect toolbarRect)
+        {
+            if (string.IsNullOrWhiteSpace(orderStatusMessage) || (DateTime.UtcNow - orderStatusMessageTime).TotalSeconds > 8)
+                return;
+
+            DrawText(chartControl, orderStatusMessage, toolbarRect.X, toolbarRect.Bottom + 2, toolbarRect.Width, 20, false, true);
         }
 
         private void DrawToolbarBackground(Rect rect)
@@ -559,6 +751,27 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawText(chartControl, label, rect.X, rect.Y, rect.Width, rect.Height, true, true);
         }
 
+        private void DrawLargeQuantityText(ChartControl chartControl, string text, double x, double y, double width, double height)
+        {
+            if (RenderTarget == null)
+                return;
+
+            SimpleFont baseFont = chartControl.Properties.LabelFont ?? new SimpleFont();
+            SharpDX.DirectWrite.TextFormat textFormat = baseFont.ToDirectWriteTextFormat();
+            textFormat.TextAlignment = SharpDX.DirectWrite.TextAlignment.Center;
+            textFormat.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Center;
+            SharpDX.DirectWrite.TextLayout textLayout = new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, text, textFormat, (float)width, (float)height);
+
+            float fontSize = 56f;
+            textLayout.SetFontSize(fontSize, new SharpDX.DirectWrite.TextRange(0, text.Length));
+
+            using (var textBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color4(1f, 1f, 1f, 0.18f)))
+                RenderTarget.DrawTextLayout(new SharpDX.Vector2((float)x, (float)y), textLayout, textBrush, SharpDX.Direct2D1.DrawTextOptions.NoSnap);
+
+            textLayout.Dispose();
+            textFormat.Dispose();
+        }
+
         private void DrawText(ChartControl chartControl, string text, double x, double y, double width, double height, bool white, bool centered)
         {
             SimpleFont font = chartControl.Properties.LabelFont ?? new SimpleFont();
@@ -579,6 +792,224 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return true;
         }
 
+        private void SetInitialRiskRewardLevels(ChartScale chartScale)
+        {
+            const double headerHeight = 28.0;
+            double minimumVisualStopDistance = GetPriceDistanceForPixels(chartScale, entryAnchor.Price, headerHeight * 2.0);
+            double stopDistance = RoundToTick(Math.Max(GetPriceDistanceForDollars(50), minimumVisualStopDistance));
+            double finalTargetDistance = RoundToTick(stopDistance * 3.0);
+            double target1Distance = finalTargetDistance;
+            double target2Distance = RoundToTick(finalTargetDistance * 2.0 / 3.0);
+            double target3Distance = finalTargetDistance;
+
+            if (Direction == MpPanelDirection.Long)
+            {
+                stopAnchor.Price = RoundToTick(entryAnchor.Price - stopDistance);
+                targetAnchor.Price = RoundToTick(entryAnchor.Price + target1Distance);
+                target2Anchor.Price = RoundToTick(entryAnchor.Price + target2Distance);
+                target3Anchor.Price = RoundToTick(entryAnchor.Price + target3Distance);
+            }
+            else
+            {
+                stopAnchor.Price = RoundToTick(entryAnchor.Price + stopDistance);
+                targetAnchor.Price = RoundToTick(entryAnchor.Price - target1Distance);
+                target2Anchor.Price = RoundToTick(entryAnchor.Price - target2Distance);
+                target3Anchor.Price = RoundToTick(entryAnchor.Price - target3Distance);
+            }
+
+            finalTargetOffsetFromEntry = GetCurrentFinalTargetPrice() - entryAnchor.Price;
+            UpdateOffsetsFromAnchors();
+        }
+
+        private double GetPriceDistanceForPixels(ChartScale chartScale, double price, double pixels)
+        {
+            if (chartScale == null || pixels <= 0)
+                return TickSize;
+
+            double y = chartScale.GetYByValue(price);
+            double priceAtOffset = chartScale.GetValueByY((float)(y - pixels));
+            return Math.Max(TickSize, RoundToTick(Math.Abs(priceAtOffset - price)));
+        }
+
+        private void UpdateOffsetsFromAnchors()
+        {
+            stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
+            targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+            target2OffsetFromEntry = target2Anchor.Price - entryAnchor.Price;
+            target3OffsetFromEntry = target3Anchor.Price - entryAnchor.Price;
+        }
+
+        private void NormalizeTargetLevels()
+        {
+            TargetLevels = Math.Max(1, Math.Min(3, TargetLevels));
+
+            double minDistance = GetMinimumDistanceFromEntry();
+            if (Math.Abs(target2Anchor.Price - entryAnchor.Price) < minDistance)
+                target2Anchor.Price = Direction == MpPanelDirection.Long
+                    ? RoundToTick(entryAnchor.Price + Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 1.5))
+                    : RoundToTick(entryAnchor.Price - Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 1.5));
+
+            if (Math.Abs(target3Anchor.Price - entryAnchor.Price) < minDistance)
+                target3Anchor.Price = Direction == MpPanelDirection.Long
+                    ? RoundToTick(entryAnchor.Price + Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 2.0))
+                    : RoundToTick(entryAnchor.Price - Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 2.0));
+
+            targetAnchor.Price = ClampTargetPrice(targetAnchor.Price);
+            target2Anchor.Price = ClampTargetPrice(target2Anchor.Price);
+            target3Anchor.Price = ClampTargetPrice(target3Anchor.Price);
+            if (GetEffectiveTargetLevels() > 1)
+                DistributeTargetsToFinalTarget(GetStoredFinalTargetPrice(), false);
+            else
+                ReorderActiveTargetPricesByDistance();
+            UpdateOffsetsFromAnchors();
+        }
+
+        private void DistributeSplitTargetsFromSingleTarget()
+        {
+            DistributeTargetsToFinalTarget(GetCurrentFinalTargetPrice(), true);
+        }
+
+        private double GetCurrentFinalTargetPrice()
+        {
+            int levels = GetEffectiveTargetLevels();
+            if (levels <= 1)
+                return targetAnchor.Price;
+            if (levels == 2)
+                return target2Anchor.Price;
+            return target3Anchor.Price;
+        }
+
+        private double GetStoredFinalTargetPrice()
+        {
+            if (Math.Abs(finalTargetOffsetFromEntry) < TickSize)
+                finalTargetOffsetFromEntry = GetCurrentFinalTargetPrice() - entryAnchor.Price;
+
+            return RoundToTick(entryAnchor.Price + finalTargetOffsetFromEntry);
+        }
+
+        private ChartAnchor GetDraggableTargetAnchor()
+        {
+            int levels = GetEffectiveTargetLevels();
+            if (levels <= 1)
+                return targetAnchor;
+            if (levels == 2)
+                return target2Anchor;
+            return target3Anchor;
+        }
+
+        private void DistributeTargetsToFinalTarget(double finalTargetPrice, bool updateFinalOffset)
+        {
+            int levels = GetEffectiveTargetLevels();
+            finalTargetPrice = ClampTargetPrice(finalTargetPrice);
+
+            if (levels <= 1)
+            {
+                targetAnchor.Price = finalTargetPrice;
+                if (updateFinalOffset)
+                    finalTargetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+                UpdateOffsetsFromAnchors();
+                return;
+            }
+
+            double finalDistance = Math.Abs(finalTargetPrice - entryAnchor.Price);
+            double minDistance = GetMinimumDistanceFromEntry();
+            finalDistance = Math.Max(finalDistance, minDistance * levels);
+
+            double directionSign = Direction == MpPanelDirection.Long ? 1.0 : -1.0;
+            targetAnchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance / levels);
+            target2Anchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance * 2.0 / levels);
+            target3Anchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance);
+            if (updateFinalOffset)
+                finalTargetOffsetFromEntry = GetCurrentFinalTargetPrice() - entryAnchor.Price;
+            UpdateOffsetsFromAnchors();
+        }
+
+        private void ReorderActiveTargetPricesByDistance()
+        {
+            int levels = GetEffectiveTargetLevels();
+            if (levels <= 1)
+                return;
+
+            List<double> orderedPrices = GetActiveTargetAnchors()
+                .Select(anchor => anchor.Price)
+                .OrderBy(price => Math.Abs(price - entryAnchor.Price))
+                .ToList();
+
+            targetAnchor.Price = orderedPrices[0];
+            if (levels >= 2)
+                target2Anchor.Price = orderedPrices[1];
+            if (levels >= 3)
+                target3Anchor.Price = orderedPrices[2];
+        }
+
+        private int GetEffectiveTargetLevels()
+        {
+            if (TargetMode == MpTargetMode.Single)
+                return 1;
+
+            return Math.Max(1, Math.Min(3, TargetLevels));
+        }
+
+        private List<ChartAnchor> GetActiveTargetAnchors()
+        {
+            List<ChartAnchor> targets = new List<ChartAnchor> { targetAnchor };
+            int levels = GetEffectiveTargetLevels();
+            if (levels >= 2)
+                targets.Add(target2Anchor);
+            if (levels >= 3)
+                targets.Add(target3Anchor);
+            return targets;
+        }
+
+        private List<ChartAnchor> GetAllTargetAnchors()
+        {
+            return new List<ChartAnchor> { targetAnchor, target2Anchor, target3Anchor };
+        }
+
+        private List<Point> GetActiveTargetPoints(Point target1, Point target2, Point target3)
+        {
+            List<Point> points = new List<Point> { target1 };
+            int levels = GetEffectiveTargetLevels();
+            if (levels >= 2)
+                points.Add(target2);
+            if (levels >= 3)
+                points.Add(target3);
+            return points;
+        }
+
+        private int[] GetTargetQuantitySplit()
+        {
+            int levels = GetEffectiveTargetLevels();
+            int[] split = new int[levels];
+            if (Quantity < levels)
+            {
+                for (int i = levels - Quantity; i < levels; i++)
+                    split[i] = 1;
+
+                return split;
+            }
+
+            int baseQty = Quantity / levels;
+            int remainder = Quantity % levels;
+
+            for (int i = 0; i < levels; i++)
+                split[i] = baseQty + (i < remainder ? 1 : 0);
+
+            return split;
+        }
+
+        private double CalculateTotalReward()
+        {
+            List<ChartAnchor> targets = GetActiveTargetAnchors();
+            int[] split = GetTargetQuantitySplit();
+            double total = 0;
+
+            for (int i = 0; i < targets.Count; i++)
+                total += CalculateMoney(CalculateTicks(entryAnchor.Price, targets[i].Price), split[i]);
+
+            return total;
+        }
+
         private double CalculateTicks(double priceA, double priceB)
         {
             return Math.Abs(priceA - priceB) / TickSize;
@@ -587,6 +1018,231 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private double CalculateMoney(double ticks)
         {
             return ticks * TickValue * Quantity;
+        }
+
+        private double CalculateMoney(double ticks, int quantity)
+        {
+            return ticks * TickValue * Math.Max(0, quantity);
+        }
+
+        private void UpdateInstrumentSpecFromChart()
+        {
+            if (!AutoInstrumentSpec)
+                return;
+
+            ChartBars chartBars = GetAttachedToChartBars();
+            if (chartBars == null)
+                return;
+
+            object bars = GetPropertyValue(chartBars, "Bars");
+            object instrument = GetPropertyValue(bars, "Instrument") ?? GetPropertyValue(chartBars, "Instrument");
+            string instrumentName = GetInstrumentName(instrument, bars, chartBars);
+
+            if (TryApplyKnownFuturesSpec(instrumentName))
+                return;
+
+            object masterInstrument = GetPropertyValue(instrument, "MasterInstrument");
+            if (masterInstrument == null)
+                return;
+
+            double instrumentTickSize = GetDoublePropertyValue(masterInstrument, "TickSize");
+            double pointValue = GetDoublePropertyValue(masterInstrument, "PointValue");
+            if (instrumentTickSize <= 0 || pointValue <= 0)
+                return;
+
+            TickSize = instrumentTickSize;
+            TickValue = instrumentTickSize * pointValue;
+        }
+
+        private string GetInstrumentName(params object[] sources)
+        {
+            foreach (object source in sources)
+            {
+                string name = GetPropertyValue(source, "FullName")?.ToString();
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+
+                name = GetPropertyValue(source, "Name")?.ToString();
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+
+                name = source?.ToString();
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+            }
+
+            return string.Empty;
+        }
+
+        private bool TryApplyKnownFuturesSpec(string instrumentName)
+        {
+            if (string.IsNullOrWhiteSpace(instrumentName))
+                return false;
+
+            string upperName = instrumentName.ToUpperInvariant();
+            if (upperName.StartsWith("MNQ"))
+            {
+                TickSize = 0.25;
+                TickValue = 0.50;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("NQ"))
+            {
+                TickSize = 0.25;
+                TickValue = 5.00;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("FDXS"))
+            {
+                TickSize = 1;
+                TickValue = 1.00;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("FDXM"))
+            {
+                TickSize = 1;
+                TickValue = 5.00;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("FDAX"))
+            {
+                TickSize = 0.5;
+                TickValue = 12.50;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("DAX"))
+            {
+                ApplyDefaultShiftSnap(upperName, 50);
+                return false;
+            }
+
+            if (upperName.StartsWith("MGC"))
+            {
+                TickSize = 0.1;
+                TickValue = 1.00;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("GC"))
+            {
+                TickSize = 0.1;
+                TickValue = 10.00;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("SIL"))
+            {
+                TickSize = 0.005;
+                TickValue = 5.00;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("SI"))
+            {
+                TickSize = 0.005;
+                TickValue = 25.00;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("MES"))
+            {
+                TickSize = 0.25;
+                TickValue = 1.25;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("ES"))
+            {
+                TickSize = 0.25;
+                TickValue = 12.50;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("MYM"))
+            {
+                TickSize = 1;
+                TickValue = 0.50;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("YM"))
+            {
+                TickSize = 1;
+                TickValue = 5.00;
+                ApplyDefaultShiftSnap(upperName, 50);
+                return true;
+            }
+
+            if (upperName.StartsWith("M2K"))
+            {
+                TickSize = 0.1;
+                TickValue = 0.50;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            if (upperName.StartsWith("RTY"))
+            {
+                TickSize = 0.1;
+                TickValue = 5.00;
+                ApplyDefaultShiftSnap(upperName, 10);
+                return true;
+            }
+
+            return false;
+        }
+
+        private void ApplyDefaultShiftSnap(string instrumentName, double defaultSnapPoints)
+        {
+            if (string.Equals(lastAutoSnapInstrumentName, instrumentName, StringComparison.Ordinal))
+                return;
+
+            if (ShiftSnapPoints <= 0)
+                ShiftSnapPoints = defaultSnapPoints;
+
+            lastAutoSnapInstrumentName = instrumentName;
+        }
+
+        private object GetPropertyValue(object source, string propertyName)
+        {
+            if (source == null)
+                return null;
+
+            PropertyInfo property = source.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+            return property == null || !property.CanRead ? null : property.GetValue(source, null);
+        }
+
+        private double GetDoublePropertyValue(object source, string propertyName)
+        {
+            object value = GetPropertyValue(source, propertyName);
+            if (value == null)
+                return 0;
+
+            try
+            {
+                return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private double GetPriceDistanceForDollars(double dollars)
@@ -602,6 +1258,34 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private double RoundToTick(double price)
         {
             return Math.Round(price / TickSize, MidpointRounding.AwayFromZero) * TickSize;
+        }
+
+        private double ApplyShiftSnapToPrice(double price, bool isTarget)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift || ShiftSnapPoints <= 0 || entryAnchor == null)
+                return price;
+
+            double step = Math.Max(TickSize, ShiftSnapPoints);
+            if (ShiftSnapMode == MpShiftSnapMode.EvenPrice)
+                return RoundToTick(Math.Round(price / step, MidpointRounding.AwayFromZero) * step);
+
+            double distance = Math.Abs(price - entryAnchor.Price);
+            double snappedDistance = Math.Max(step, Math.Round(distance / step, MidpointRounding.AwayFromZero) * step);
+            bool shouldBeAboveEntry = Direction == MpPanelDirection.Long ? isTarget : !isTarget;
+            double snappedPrice = shouldBeAboveEntry
+                ? entryAnchor.Price + snappedDistance
+                : entryAnchor.Price - snappedDistance;
+
+            return RoundToTick(snappedPrice);
+        }
+
+        private double ApplyShiftSnapToEntryPrice(double price)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift || ShiftSnapPoints <= 0)
+                return price;
+
+            double step = Math.Max(TickSize, ShiftSnapPoints);
+            return RoundToTick(Math.Round(price / step, MidpointRounding.AwayFromZero) * step);
         }
 
         private double ClampStopPrice(double price)
@@ -670,7 +1354,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             CheckAnchor(entryAnchor);
             CheckAnchor(stopAnchor);
-            CheckAnchor(targetAnchor);
+            CheckAnchor(GetDraggableTargetAnchor());
 
             return closestDistance <= CursorSensitivity ? closest : null;
 
@@ -691,11 +1375,17 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private ChartAnchor GetPanelDragAnchor(ChartScale chartScale, Point point)
         {
-            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
+            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
                 return null;
 
             if (targetDragRect.Contains(point))
                 return targetAnchor;
+
+            if (target2DragRect.Contains(point))
+                return target2Anchor;
+
+            if (target3DragRect.Contains(point))
+                return target3Anchor;
 
             if (entryDragRect.Contains(point))
                 return entryAnchor;
@@ -720,14 +1410,16 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             if (qtyMinusButton.Contains(point))
             {
-                SetPanelQuantity(Math.Max(1, Quantity - 1));
+                int step = GetQuantityStep();
+                SetPanelQuantity(Math.Max(step, Quantity - step));
                 suppressNextMouseUpSelection = true;
                 return true;
             }
 
             if (qtyPlusButton.Contains(point))
             {
-                SetPanelQuantity(Math.Min(999, Quantity + 1));
+                int step = GetQuantityStep();
+                SetPanelQuantity(Math.Min(999, Quantity + step));
                 suppressNextMouseUpSelection = true;
                 return true;
             }
@@ -737,10 +1429,32 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private void SetPanelQuantity(int quantity)
         {
-            Quantity = Math.Max(1, Math.Min(999, quantity));
+            int previousQuantity = Quantity;
+            Quantity = NormalizeQuantityForTargetLevels(quantity);
+            lastPanelQuantityWrite = DateTime.UtcNow;
+            pendingChartTraderQuantity = Quantity;
+            pendingPreviousChartTraderQuantity = previousQuantity;
+            ignoredChartTraderQuantityAfterPanelChange = lastKnownChartTraderQuantity > 0 ? lastKnownChartTraderQuantity : previousQuantity;
 
             if (SyncChartTraderQuantity)
                 TrySyncChartTraderQuantity(Quantity);
+        }
+
+        private int GetQuantityStep()
+        {
+            return Math.Max(1, GetEffectiveTargetLevels());
+        }
+
+        private int NormalizeQuantityForTargetLevels(int quantity)
+        {
+            int step = GetQuantityStep();
+            int maxQuantity = 999 - (999 % step);
+            int normalized = Math.Max(step, Math.Min(maxQuantity, quantity));
+            int remainder = normalized % step;
+            if (remainder != 0)
+                normalized += step - remainder;
+
+            return Math.Min(maxQuantity, normalized);
         }
 
         private void TrySyncChartTraderQuantity(int quantity)
@@ -791,9 +1505,49 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                     return;
 
                 int chartTraderQuantity;
-                if (TryReadQuantityValue(orderQuantityControl, out chartTraderQuantity) && chartTraderQuantity > 0 && chartTraderQuantity != Quantity)
+                if (!TryReadQuantityValue(orderQuantityControl, out chartTraderQuantity) || chartTraderQuantity <= 0)
+                    return;
+
+                if (ignoredChartTraderQuantityAfterPanelChange > 0)
                 {
-                    Quantity = Math.Min(999, chartTraderQuantity);
+                    if (chartTraderQuantity == ignoredChartTraderQuantityAfterPanelChange)
+                    {
+                        lastKnownChartTraderQuantity = chartTraderQuantity;
+                        return;
+                    }
+
+                    ignoredChartTraderQuantityAfterPanelChange = 0;
+                }
+
+                lastKnownChartTraderQuantity = chartTraderQuantity;
+
+                if (pendingChartTraderQuantity > 0 && (now - lastPanelQuantityWrite).TotalMilliseconds < 3000)
+                {
+                    if (chartTraderQuantity == pendingChartTraderQuantity)
+                    {
+                        pendingChartTraderQuantity = 0;
+                        pendingPreviousChartTraderQuantity = 0;
+                    }
+                    else if (chartTraderQuantity == pendingPreviousChartTraderQuantity)
+                    {
+                        return;
+                    }
+                    else if (chartTraderQuantity != Quantity)
+                    {
+                        pendingChartTraderQuantity = 0;
+                        pendingPreviousChartTraderQuantity = 0;
+                        Quantity = Math.Max(1, Math.Min(999, chartTraderQuantity));
+                        chartControl.InvalidateVisual();
+                    }
+
+                    return;
+                }
+
+                if (chartTraderQuantity != Quantity)
+                {
+                    pendingChartTraderQuantity = 0;
+                    pendingPreviousChartTraderQuantity = 0;
+                    Quantity = Math.Max(1, Math.Min(999, chartTraderQuantity));
                     chartControl.InvalidateVisual();
                 }
             }
@@ -1097,6 +1851,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
             targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+            target2OffsetFromEntry = target2Anchor.Price - entryAnchor.Price;
+            target3OffsetFromEntry = target3Anchor.Price - entryAnchor.Price;
             offsetsInitialized = true;
             isDetachedFromPrice = false;
             StartAttachedToCurrentPrice = true;
@@ -1121,6 +1877,30 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return true;
         }
 
+        private bool TryHandleTargetLevelsButton(Point point)
+        {
+            if (!targetLevelsButton.Contains(point))
+                return false;
+
+            if (ShouldSuppressFastTargetLevelsClick())
+                return true;
+
+            DrawingState = DrawingState.Normal;
+            IsSelected = false;
+            editingAnchor = null;
+            suppressNextMouseUpSelection = true;
+
+            double finalTargetPrice = GetStoredFinalTargetPrice();
+            int currentLevels = GetEffectiveTargetLevels();
+            TargetLevels = currentLevels >= 3 ? 1 : currentLevels + 1;
+            DistributeTargetsToFinalTarget(finalTargetPrice, false);
+            TargetMode = TargetLevels == 1 ? MpTargetMode.Single : MpTargetMode.Split;
+            SetPanelQuantity(GetEffectiveTargetLevels());
+
+            NormalizeTargetLevels();
+            return true;
+        }
+
         private void ToggleDirection()
         {
             DrawingState = DrawingState.Normal;
@@ -1142,7 +1922,257 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             editingAnchor = null;
             suppressNextMouseUpSelection = true;
 
+            if (buyButton.Contains(point))
+                SubmitPanelOrder(MpPanelDirection.Long);
+            else if (sellButton.Contains(point))
+                SubmitPanelOrder(MpPanelDirection.Short);
+
             return true;
+        }
+
+        private void SubmitPanelOrder(MpPanelDirection side)
+        {
+            if (!EnableOrderSubmission)
+            {
+                SetOrderStatus("Order submission disabled");
+                return;
+            }
+
+            if (!ValidateOrderGeometry(side))
+                return;
+
+            Account account = ResolveOrderAccount();
+            if (account == null)
+            {
+                SetOrderStatus($"Account not found: {OrderAccountName}");
+                return;
+            }
+
+            if (SimulationAccountsOnly && !IsSimulationAccount(account))
+            {
+                SetOrderStatus($"Blocked non-sim account: {account.Name}");
+                return;
+            }
+
+            Instrument instrument = GetChartInstrument();
+            if (instrument == null)
+            {
+                SetOrderStatus("Chart instrument not found");
+                return;
+            }
+
+            double currentPrice = GetLiveOrderReferencePrice();
+            if (currentPrice <= 0)
+            {
+                SetOrderStatus("No live market data for order");
+                return;
+            }
+
+            EnsureOrderAccountSubscribed(account);
+
+            OrderAction action = side == MpPanelDirection.Long ? OrderAction.Buy : OrderAction.SellShort;
+            OrderType orderType = GetEntryOrderType(side, currentPrice);
+            double limitPrice = orderType == OrderType.Limit ? entryAnchor.Price : 0;
+            double stopPrice = orderType == OrderType.StopMarket ? entryAnchor.Price : 0;
+            string entryName = side == MpPanelDirection.Long ? "MrRexo Long Entry" : "MrRexo Short Entry";
+
+            try
+            {
+                Order entryOrder = account.CreateOrder(instrument, action, orderType, OrderEntry.Manual, TimeInForce.Day, Quantity, limitPrice, stopPrice, string.Empty, entryName, Core.Globals.MaxDate, null);
+                PendingBracket bracket = new PendingBracket
+                {
+                    Direction = side,
+                    StopPrice = stopAnchor.Price,
+                    TargetPrices = GetActiveTargetAnchors().Select(anchor => anchor.Price).ToList(),
+                    TargetQuantities = GetTargetQuantitySplit()
+                };
+
+                lock (orderLock)
+                    pendingBrackets[entryOrder] = bracket;
+
+                account.Submit(new[] { entryOrder });
+                SetOrderStatus($"{entryName}: {orderType} x{Quantity}");
+            }
+            catch (Exception ex)
+            {
+                SetOrderStatus($"Order error: {ex.Message}");
+            }
+        }
+
+        private bool ValidateOrderGeometry(MpPanelDirection side)
+        {
+            if (entryAnchor == null || stopAnchor == null || targetAnchor == null)
+            {
+                SetOrderStatus("Panel levels unavailable");
+                return false;
+            }
+
+            bool valid = side == MpPanelDirection.Long
+                ? stopAnchor.Price < entryAnchor.Price && GetActiveTargetAnchors().All(anchor => anchor.Price > entryAnchor.Price)
+                : stopAnchor.Price > entryAnchor.Price && GetActiveTargetAnchors().All(anchor => anchor.Price < entryAnchor.Price);
+
+            if (!valid)
+                SetOrderStatus(side == MpPanelDirection.Long ? "BUY needs SL below OP and TP above OP" : "SELL needs SL above OP and TP below OP");
+
+            return valid;
+        }
+
+        private OrderType GetEntryOrderType(MpPanelDirection side, double currentPrice)
+        {
+            int cmp = ComparePrices(entryAnchor.Price, currentPrice);
+            if (cmp == 0)
+                return OrderType.Market;
+
+            if (side == MpPanelDirection.Long)
+                return cmp > 0 ? OrderType.StopMarket : OrderType.Limit;
+
+            return cmp < 0 ? OrderType.StopMarket : OrderType.Limit;
+        }
+
+        private Account ResolveOrderAccount()
+        {
+            lock (Account.All)
+            {
+                if (!string.IsNullOrWhiteSpace(OrderAccountName))
+                {
+                    Account configured = Account.All.FirstOrDefault(account => string.Equals(account.Name, OrderAccountName.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (configured != null)
+                        return configured;
+                }
+
+                return Account.All.FirstOrDefault(IsSimulationAccount);
+            }
+        }
+
+        private bool IsSimulationAccount(Account account)
+        {
+            return account != null && !string.IsNullOrWhiteSpace(account.Name) && account.Name.StartsWith("Sim", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private Instrument GetChartInstrument()
+        {
+            ChartBars chartBars = GetAttachedToChartBars();
+            return chartBars?.Bars?.Instrument;
+        }
+
+        private void EnsureOrderAccountSubscribed(Account account)
+        {
+            if (account == null || subscribedOrderAccount == account)
+                return;
+
+            UnsubscribeOrderAccount();
+            subscribedOrderAccount = account;
+            subscribedOrderAccount.OrderUpdate += OnAccountOrderUpdate;
+        }
+
+        private void UnsubscribeOrderAccount()
+        {
+            if (subscribedOrderAccount != null)
+            {
+                subscribedOrderAccount.OrderUpdate -= OnAccountOrderUpdate;
+                subscribedOrderAccount = null;
+            }
+
+            lock (orderLock)
+                pendingBrackets.Clear();
+        }
+
+        private void OnAccountOrderUpdate(object sender, OrderEventArgs e)
+        {
+            if (e == null || e.Order == null)
+                return;
+
+            PendingBracket bracket;
+            lock (orderLock)
+            {
+                if (!pendingBrackets.TryGetValue(e.Order, out bracket))
+                    return;
+
+                if (e.OrderState != OrderState.Filled && e.OrderState != OrderState.Cancelled && e.OrderState != OrderState.Rejected)
+                    return;
+
+                pendingBrackets.Remove(e.Order);
+            }
+
+            if (e.OrderState == OrderState.Cancelled || e.OrderState == OrderState.Rejected)
+            {
+                SetOrderStatus($"Entry {e.OrderState}: {e.Order.Name}");
+                return;
+            }
+
+            Account account = sender as Account ?? subscribedOrderAccount;
+            if (account == null)
+                return;
+
+            SubmitProtectionOrders(account, e.Order, bracket);
+        }
+
+        private void SubmitProtectionOrders(Account account, Order filledEntry, PendingBracket bracket)
+        {
+            if (account == null || filledEntry == null || bracket == null)
+                return;
+
+            int filledQuantity = filledEntry.Filled > 0 ? filledEntry.Filled : filledEntry.Quantity;
+            int[] targetQuantities = AllocateExitQuantities(filledQuantity, bracket.TargetQuantities);
+            OrderAction exitAction = bracket.Direction == MpPanelDirection.Long ? OrderAction.Sell : OrderAction.BuyToCover;
+            List<Order> exitOrders = new List<Order>();
+
+            try
+            {
+                for (int i = 0; i < bracket.TargetPrices.Count && i < targetQuantities.Length; i++)
+                {
+                    if (targetQuantities[i] <= 0)
+                        continue;
+
+                    string oco = Guid.NewGuid().ToString("N");
+                    Order stopOrder = account.CreateOrder(filledEntry.Instrument, exitAction, OrderType.StopMarket, OrderEntry.Manual, TimeInForce.Day, targetQuantities[i], 0, bracket.StopPrice, oco, $"MrRexo SL{i + 1}", Core.Globals.MaxDate, null);
+                    Order targetOrder = account.CreateOrder(filledEntry.Instrument, exitAction, OrderType.Limit, OrderEntry.Manual, TimeInForce.Day, targetQuantities[i], bracket.TargetPrices[i], 0, oco, $"MrRexo TP{i + 1}", Core.Globals.MaxDate, null);
+                    exitOrders.Add(stopOrder);
+                    exitOrders.Add(targetOrder);
+                }
+
+                if (exitOrders.Count > 0)
+                {
+                    account.Submit(exitOrders);
+                    SetOrderStatus($"Bracket submitted: {exitOrders.Count / 2} OCO pairs");
+                }
+            }
+            catch (Exception ex)
+            {
+                SetOrderStatus($"Bracket error: {ex.Message}");
+            }
+        }
+
+        private int[] AllocateExitQuantities(int filledQuantity, int[] preferredSplit)
+        {
+            if (preferredSplit == null || preferredSplit.Length == 0)
+                return new[] { Math.Max(1, filledQuantity) };
+
+            int[] allocated = new int[preferredSplit.Length];
+            int remaining = Math.Max(0, filledQuantity);
+            for (int i = 0; i < preferredSplit.Length && remaining > 0; i++)
+            {
+                int quantity = Math.Min(Math.Max(0, preferredSplit[i]), remaining);
+                allocated[i] = quantity;
+                remaining -= quantity;
+            }
+
+            for (int i = 0; i < allocated.Length && remaining > 0; i++)
+            {
+                allocated[i]++;
+                remaining--;
+            }
+
+            return allocated;
+        }
+
+        private void SetOrderStatus(string message)
+        {
+            orderStatusMessage = message ?? string.Empty;
+            orderStatusMessageTime = DateTime.UtcNow;
+
+            ChartControl chartControl = lastChartControl;
+            chartControl?.Dispatcher?.BeginInvoke(new Action(() => chartControl.InvalidateVisual()));
         }
 
         private void FlipStopAndTargetAroundEntry()
@@ -1151,21 +2181,27 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return;
 
             double stopDistance = Math.Abs(stopAnchor.Price - entryAnchor.Price);
-            double targetDistance = Math.Abs(targetAnchor.Price - entryAnchor.Price);
+            List<ChartAnchor> targets = GetAllTargetAnchors();
+            List<double> targetDistances = targets.Select(anchor => Math.Abs(anchor.Price - entryAnchor.Price)).ToList();
+            if (Math.Abs(finalTargetOffsetFromEntry) < TickSize)
+                finalTargetOffsetFromEntry = GetCurrentFinalTargetPrice() - entryAnchor.Price;
 
             if (Direction == MpPanelDirection.Long)
             {
                 stopAnchor.Price = RoundToTick(entryAnchor.Price - stopDistance);
-                targetAnchor.Price = RoundToTick(entryAnchor.Price + targetDistance);
+                for (int i = 0; i < targetDistances.Count; i++)
+                    targets[i].Price = RoundToTick(entryAnchor.Price + targetDistances[i]);
+                finalTargetOffsetFromEntry = Math.Abs(finalTargetOffsetFromEntry);
             }
             else
             {
                 stopAnchor.Price = RoundToTick(entryAnchor.Price + stopDistance);
-                targetAnchor.Price = RoundToTick(entryAnchor.Price - targetDistance);
+                for (int i = 0; i < targetDistances.Count; i++)
+                    targets[i].Price = RoundToTick(entryAnchor.Price - targetDistances[i]);
+                finalTargetOffsetFromEntry = -Math.Abs(finalTargetOffsetFromEntry);
             }
 
-            stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
-            targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+            UpdateOffsetsFromAnchors();
             offsetsInitialized = true;
         }
 
@@ -1192,28 +2228,75 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private string GetBuyButtonLabel()
         {
+            string buy = T("Buy");
             double currentPrice = GetCurrentPrice();
             if (currentPrice <= 0 || entryAnchor == null)
-                return "BUY";
+                return buy;
 
             int cmp = ComparePrices(entryAnchor.Price, currentPrice);
             if (cmp == 0)
-                return "BUY MKT";
+                return $"{buy} MKT";
 
-            return cmp > 0 ? "BUY STP" : "BUY LMT";
+            return cmp > 0 ? $"{buy} STP" : $"{buy} LMT";
         }
 
         private string GetSellButtonLabel()
         {
+            string sell = T("Sell");
             double currentPrice = GetCurrentPrice();
             if (currentPrice <= 0 || entryAnchor == null)
-                return "SELL";
+                return sell;
 
             int cmp = ComparePrices(entryAnchor.Price, currentPrice);
             if (cmp == 0)
-                return "SELL MKT";
+                return $"{sell} MKT";
 
-            return cmp < 0 ? "SELL STP" : "SELL LMT";
+            return cmp < 0 ? $"{sell} STP" : $"{sell} LMT";
+        }
+
+        private string T(string key)
+        {
+            switch (PanelLanguage)
+            {
+                case MpPanelLanguage.EN:
+                    switch (key)
+                    {
+                        case "Buy": return "BUY";
+                        case "Sell": return "SELL";
+                        case "TotalProfit": return "Total profit";
+                        case "Loss": return "Loss";
+                        case "Risk": return "Risk";
+                        case "Ticks": return "ticks";
+                        case "IK": return "QTY";
+                    }
+                    break;
+                case MpPanelLanguage.DE:
+                    switch (key)
+                    {
+                        case "Buy": return "KAUF";
+                        case "Sell": return "VERK";
+                        case "TotalProfit": return "Gewinn gesamt";
+                        case "Loss": return "Verlust";
+                        case "Risk": return "Risiko";
+                        case "Ticks": return "Ticks";
+                        case "IK": return "KTR";
+                    }
+                    break;
+                default:
+                    switch (key)
+                    {
+                        case "Buy": return "KUP";
+                        case "Sell": return "SPRZ";
+                        case "TotalProfit": return "Zysk lacznie";
+                        case "Loss": return "Strata";
+                        case "Risk": return "Ryzyko";
+                        case "Ticks": return "tickow";
+                        case "IK": return "IK";
+                    }
+                    break;
+            }
+
+            return key;
         }
 
         private int ComparePrices(double a, double b)
@@ -1235,6 +2318,16 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return false;
         }
 
+        private bool ShouldSuppressFastTargetLevelsClick()
+        {
+            DateTime now = DateTime.UtcNow;
+            if ((now - lastTargetLevelsButtonClick).TotalMilliseconds < 200)
+                return true;
+
+            lastTargetLevelsButtonClick = now;
+            return false;
+        }
+
         private void UpdateAutoFollowPrice()
         {
             if (isDetachedFromPrice || !StartAttachedToCurrentPrice || DrawingState == DrawingState.Building || DrawingState == DrawingState.Editing)
@@ -1246,7 +2339,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             entryAnchor.Price = currentPrice;
             stopAnchor.Price = RoundToTick(entryAnchor.Price + stopOffsetFromEntry);
-            targetAnchor.Price = RoundToTick(entryAnchor.Price + targetOffsetFromEntry);
+            DistributeTargetsToFinalTarget(GetStoredFinalTargetPrice(), false);
         }
 
         private double GetCurrentPrice()
@@ -1259,6 +2352,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 stopOffsetFromEntry = stopAnchor.Price - entryAnchor.Price;
                 targetOffsetFromEntry = targetAnchor.Price - entryAnchor.Price;
+                target2OffsetFromEntry = target2Anchor.Price - entryAnchor.Price;
+                target3OffsetFromEntry = target3Anchor.Price - entryAnchor.Price;
                 offsetsInitialized = true;
             }
 
@@ -1267,6 +2362,19 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 currentPrice = RoundToTick(chartBars.Bars.GetClose(chartBars.Bars.Count - 1));
 
             return currentPrice;
+        }
+
+        private double GetLiveOrderReferencePrice()
+        {
+            ChartBars chartBars = GetAttachedToChartBars();
+            if (chartBars == null || chartBars.Bars == null)
+                return 0;
+
+            double lastPrice = chartBars.Bars.LastPrice;
+            if (lastPrice <= 0 || double.IsNaN(lastPrice) || double.IsInfinity(lastPrice))
+                return 0;
+
+            return RoundToTick(lastPrice);
         }
     }
 }
