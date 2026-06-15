@@ -49,6 +49,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         DE
     }
 
+    [DisplayName("MrRexoRR Free")]
+    [Description("Free edition of MrRexoRR risk/reward panel for NinjaTrader 8.")]
     public class MrRexoRR : DrawingTool
     {
         private const int CursorSensitivity = 15;
@@ -182,7 +184,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         [Display(Name = "Shift snap mode", GroupName = "Parameters", Order = 8)]
         public MpShiftSnapMode ShiftSnapMode { get; set; }
 
-        public override object Icon => "RR";
+        public override object Icon => "FR";
 
         public override IEnumerable<ChartAnchor> Anchors
         {
@@ -205,7 +207,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         {
             if (State == State.SetDefaults)
             {
-                Name = "MrRexo Panel";
+                Name = "MrRexoRR Free";
                 Description = "Interaktywny panel ryzyka i zysku z maksymalnie trzema poziomami TP i jednym SL.";
                 DrawingState = DrawingState.Building;
                 Quantity = 1;
