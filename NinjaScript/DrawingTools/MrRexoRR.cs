@@ -632,9 +632,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                     continue;
 
                 double targetLabelY = targetPoints[i].Y < entry.Y ? targetPoints[i].Y - 24 : targetPoints[i].Y + 4;
-                double targetTicks = CalculateTicks(entryAnchor.Price, targets[i].Price);
-                double targetReward = CalculateMoney(targetTicks, splits[i]);
-                DrawText(chartControl, $"TP{i + 1}: {targets[i].Price:F2}  K:{splits[i]}  +{targetReward:F2}$", left, targetLabelY, panelWidth, 22, true, true);
+                DrawText(chartControl, $"TP{i + 1}: {targets[i].Price:F2}  K:{splits[i]}", left, targetLabelY, panelWidth, 22, true, true);
             }
 
             DrawText(chartControl, $"{T("TotalProfit")}: {reward:F2}$", left, profitSummaryY, panelWidth, 22, false, true);
