@@ -72,7 +72,9 @@ Short version:
 2. Open NinjaTrader 8.
 3. Open `New > NinjaScript Editor`.
 4. Compile NinjaScript.
-5. Add `MrRexo Panel` from the chart drawing tools menu.
+5. Add `MrRexoRR Free` from the chart drawing tools menu.
+
+Compiled packages should be distributed through GitHub Releases after testing on a clean NinjaTrader 8 installation. See [Distribution](docs/distribution.md).
 
 ## Order Submission Safety
 
@@ -102,6 +104,7 @@ docs/                                  Installation, usage, notes, roadmap
 ## Documentation
 
 - [Installation](docs/installation.md)
+- [Distribution](docs/distribution.md)
 - [Usage](docs/usage.md)
 - [Safety Model](docs/safety.md)
 - [Roadmap](docs/roadmap.md)
