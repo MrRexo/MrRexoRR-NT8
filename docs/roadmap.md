@@ -4,13 +4,19 @@ This roadmap is not a promise of delivery. It documents likely directions for th
 
 ## Free / Community
 
-- Stable chart-based risk/reward panel.
+The Free / Community edition is intended to be a working NinjaTrader 8 tool, not a demo or a limited preview.
+
+Current Free / Community scope:
+
+- Working chart-based risk/reward panel.
 - Manual OP/SL/TP interaction.
 - 1TP, 2TP, and 3TP planning.
-- Basic bracket execution.
+- Bracket execution from the panel.
+- OCO protection after entry fill.
 - BE and CLOSE controls.
 - Instrument presets.
-- Documentation and safe defaults.
+- Chart Trader account detection.
+- Documentation and safety notes.
 - Bug fixes for supported NinjaTrader 8 workflows.
 
 ## Candidate Improvements
