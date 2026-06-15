@@ -1,7 +1,35 @@
+# Build output
 bin/
 obj/
+Debug/
+Release/
+
+# Visual Studio / Rider
 .vs/
+.idea/
 *.user
 *.suo
-*.nupkg
+*.userosscache
+*.sln.docstates
 
+# Packages and generated artifacts
+*.nupkg
+*.snupkg
+packages/
+
+# NinjaTrader generated output / exports
+*.zip
+*.dll
+*.pdb
+*.nt8
+
+# Local scratch files
+tmp/
+tmp_*/
+tmp-video/
+tmp_video_frames/
+*.log
+
+# OS files
+Thumbs.db
+Desktop.ini

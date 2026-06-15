@@ -49,7 +49,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         DE
     }
 
-    public class MpRiskRewardPanel : DrawingTool
+    public class MrRexoRR : DrawingTool
     {
         private const int CursorSensitivity = 15;
 
@@ -82,6 +82,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private Rect presetsToolbarRect;
         private Rect buyButton;
         private Rect sellButton;
+        private Rect breakEvenButton;
+        private Rect closePositionButton;
         private Rect toolbarDirectionButton;
         private Rect targetLevelsButton;
         private Rect targetDragRect;
@@ -93,6 +95,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private DateTime lastQuantityButtonClick = DateTime.MinValue;
         private DateTime lastPanelQuantityWrite = DateTime.MinValue;
         private DateTime lastTargetLevelsButtonClick = DateTime.MinValue;
+        private DateTime lastTradeButtonClick = DateTime.MinValue;
         private DateTime lastChartTraderQuantityRead = DateTime.MinValue;
         private int pendingChartTraderQuantity;
         private int pendingPreviousChartTraderQuantity;
@@ -126,12 +129,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         public bool EnableOrderSubmission { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Order account", GroupName = "Orders", Order = 1)]
+        [Display(Name = "Account override", GroupName = "Orders", Order = 1)]
         public string OrderAccountName { get; set; }
 
+        [Range(0, int.MaxValue)]
         [NinjaScriptProperty]
-        [Display(Name = "Simulation accounts only", GroupName = "Orders", Order = 2)]
-        public bool SimulationAccountsOnly { get; set; }
+        [Display(Name = "BE buffer ticks", GroupName = "Orders", Order = 2)]
+        public int BreakEvenBufferTicks { get; set; }
 
         [NinjaScriptProperty]
         [Browsable(false)]
@@ -206,8 +210,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 DrawingState = DrawingState.Building;
                 Quantity = 1;
                 EnableOrderSubmission = true;
-                OrderAccountName = "Sim101";
-                SimulationAccountsOnly = true;
+                OrderAccountName = string.Empty;
+                BreakEvenBufferTicks = 1;
                 PanelLanguage = MpPanelLanguage.EN;
                 TargetMode = MpTargetMode.Single;
                 TargetLevels = 1;
@@ -663,9 +667,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double h = 22;
             double gap = 3;
             double tradeWidth = 72;
+            double actionWidth = 52;
             double directionWidth = 30;
             double targetLevelsWidth = 38;
-            double totalWidth = tradeWidth + gap + tradeWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
+            double totalWidth = tradeWidth + gap + tradeWidth + gap + actionWidth + gap + actionWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
             double padding = 6;
             double toolbarWidth = totalWidth + 2 * padding;
             double toolbarHeight = h + 2 * padding;
@@ -677,7 +682,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             buyButton = new Rect(x, y, tradeWidth, h);
             sellButton = new Rect(buyButton.Right + gap, y, tradeWidth, h);
-            toolbarDirectionButton = new Rect(sellButton.Right + 12, y, directionWidth, h);
+            breakEvenButton = new Rect(sellButton.Right + gap, y, actionWidth, h);
+            closePositionButton = new Rect(breakEvenButton.Right + gap, y, actionWidth, h);
+            toolbarDirectionButton = new Rect(closePositionButton.Right + 12, y, directionWidth, h);
             targetLevelsButton = new Rect(toolbarDirectionButton.Right + gap, y, targetLevelsWidth, h);
             preset1Button = new Rect(targetLevelsButton.Right + 12, y, 24, h);
             preset2Button = new Rect(preset1Button.Right + gap, y, 24, h);
@@ -685,8 +692,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             preset10Button = new Rect(preset5Button.Right + gap, y, 31, h);
             preset20Button = new Rect(preset10Button.Right + gap, y, 31, h);
 
-            DrawButton(chartControl, buyButton, GetBuyButtonLabel());
-            DrawButton(chartControl, sellButton, GetSellButtonLabel());
+            DrawButton(chartControl, buyButton, GetBuyButtonLabel(), new SharpDX.Color4(0.00f, 0.42f, 0.22f, 0.96f));
+            DrawButton(chartControl, sellButton, GetSellButtonLabel(), new SharpDX.Color4(0.58f, 0.04f, 0.08f, 0.96f));
+            DrawButton(chartControl, breakEvenButton, "BE", new SharpDX.Color4(0.02f, 0.28f, 0.54f, 0.96f));
+            DrawButton(chartControl, closePositionButton, "CLOSE", new SharpDX.Color4(0.72f, 0.24f, 0.00f, 0.96f));
             DrawButton(chartControl, toolbarDirectionButton, Direction == MpPanelDirection.Long ? "L" : "S");
             DrawButton(chartControl, targetLevelsButton, $"TP{GetEffectiveTargetLevels()}");
             DrawButton(chartControl, preset1Button, "1");
@@ -738,9 +747,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawButton(chartControl, qtyPlusButton, "+");
         }
 
-        private void DrawButton(ChartControl chartControl, Rect rect, string label)
+        private void DrawButton(ChartControl chartControl, Rect rect, string label, SharpDX.Color4? fillColor = null)
         {
-            using (var fill = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color4(0.12f, 0.15f, 0.18f, 0.94f)))
+            SharpDX.Color4 buttonFill = fillColor ?? new SharpDX.Color4(0.12f, 0.15f, 0.18f, 0.94f);
+            using (var fill = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, buttonFill))
             using (var border = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color4(0.82f, 0.92f, 1f, 0.78f)))
             {
                 var dxRect = new SharpDX.RectangleF((float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height);
@@ -1084,7 +1094,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 TickSize = 0.25;
                 TickValue = 0.50;
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return true;
             }
 
@@ -1092,7 +1102,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 TickSize = 0.25;
                 TickValue = 5.00;
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return true;
             }
 
@@ -1100,7 +1110,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 TickSize = 1;
                 TickValue = 1.00;
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return true;
             }
 
@@ -1108,7 +1118,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 TickSize = 1;
                 TickValue = 5.00;
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return true;
             }
 
@@ -1116,13 +1126,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             {
                 TickSize = 0.5;
                 TickValue = 12.50;
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return true;
             }
 
             if (upperName.StartsWith("DAX"))
             {
-                ApplyDefaultShiftSnap(upperName, 50);
+                ApplyDefaultShiftSnap(upperName, 20);
                 return false;
             }
 
@@ -1600,6 +1610,49 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return null;
         }
 
+        private DependencyObject FindChartTraderAccountControl(Window window)
+        {
+            List<DependencyObject> elements = EnumerateVisualTree(window).ToList();
+
+            foreach (DependencyObject label in elements)
+            {
+                string labelText = GetElementText(label);
+                if (string.IsNullOrWhiteSpace(labelText) || !string.Equals(labelText.Trim(), "Account", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                Rect labelBounds = GetElementBounds(label, window);
+                DependencyObject bestCandidate = null;
+                double bestScore = double.MaxValue;
+
+                foreach (DependencyObject candidate in elements)
+                {
+                    if (!(candidate is ComboBox) && !HasReadableProperty(candidate, "SelectedItem") && !HasReadableProperty(candidate, "SelectedValue"))
+                        continue;
+
+                    Rect candidateBounds = GetElementBounds(candidate, window);
+                    if (candidateBounds.IsEmpty)
+                        continue;
+
+                    bool belowLabel = candidateBounds.Top >= labelBounds.Bottom - 6 && candidateBounds.Top <= labelBounds.Bottom + 80;
+                    bool horizontallyNear = candidateBounds.Right >= labelBounds.Left - 20 && candidateBounds.Left <= labelBounds.Right + 360;
+                    if (!belowLabel || !horizontallyNear)
+                        continue;
+
+                    double score = Math.Abs(candidateBounds.Top - labelBounds.Bottom) + Math.Abs(candidateBounds.Left - labelBounds.Left) * 0.25;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        bestCandidate = candidate;
+                    }
+                }
+
+                if (bestCandidate != null)
+                    return bestCandidate;
+            }
+
+            return null;
+        }
+
         private IEnumerable<DependencyObject> EnumerateVisualTree(DependencyObject root)
         {
             if (root == null)
@@ -1651,6 +1704,15 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         {
             PropertyInfo property = target.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
             return property != null && property.CanWrite;
+        }
+
+        private bool HasReadableProperty(object target, string propertyName)
+        {
+            if (target == null)
+                return false;
+
+            PropertyInfo property = target.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+            return property != null && property.CanRead;
         }
 
         private string GetElementText(DependencyObject element)
@@ -1745,6 +1807,65 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             }
 
             return false;
+        }
+
+        private string ReadAccountName(DependencyObject element)
+        {
+            if (element == null)
+                return string.Empty;
+
+            if (element is ComboBox comboBox)
+            {
+                string selected = ExtractAccountName(comboBox.SelectedItem);
+                if (!string.IsNullOrWhiteSpace(selected))
+                    return selected;
+
+                selected = ExtractAccountName(comboBox.SelectedValue);
+                if (!string.IsNullOrWhiteSpace(selected))
+                    return selected;
+
+                selected = comboBox.Text;
+                if (!string.IsNullOrWhiteSpace(selected))
+                    return selected.Trim();
+            }
+
+            object target = element;
+            Type type = target.GetType();
+            foreach (string propertyName in new[] { "SelectedItem", "SelectedValue", "Text", "Value" })
+            {
+                PropertyInfo property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+                if (property == null || !property.CanRead)
+                    continue;
+
+                try
+                {
+                    string accountName = ExtractAccountName(property.GetValue(target, null));
+                    if (!string.IsNullOrWhiteSpace(accountName))
+                        return accountName;
+                }
+                catch
+                {
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private string ExtractAccountName(object value)
+        {
+            if (value == null)
+                return string.Empty;
+
+            string name = GetPropertyValue(value, "Name")?.ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+                return name.Trim();
+
+            name = GetPropertyValue(value, "DisplayName")?.ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+                return name.Trim();
+
+            name = value.ToString();
+            return string.IsNullOrWhiteSpace(name) ? string.Empty : name.Trim();
         }
 
         private bool TryParseQuantity(object value, out int quantity)
@@ -1926,15 +2047,107 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 SubmitPanelOrder(MpPanelDirection.Long);
             else if (sellButton.Contains(point))
                 SubmitPanelOrder(MpPanelDirection.Short);
+            else if (breakEvenButton.Contains(point))
+                MoveStopsToBreakEven();
+            else if (closePositionButton.Contains(point))
+                CloseInstrumentPosition();
 
             return true;
         }
 
+        private void MoveStopsToBreakEven()
+        {
+            if (ShouldSuppressFastTradeClick())
+                return;
+
+            Account account = ResolveOrderAccount();
+            Instrument instrument = GetChartInstrument();
+            if (account == null || instrument == null)
+            {
+                SetOrderStatus(account == null ? "Allowed account unavailable" : "Chart instrument not found");
+                return;
+            }
+
+            Position position = GetOpenPositionOnInstrument(account, instrument);
+            if (position == null)
+            {
+                SetOrderStatus("No open position for BE");
+                return;
+            }
+
+            double breakEvenPrice = GetBreakEvenStopPrice(position);
+            List<Order> stopOrders = GetActiveStopOrdersForPosition(account, instrument, position.MarketPosition);
+            if (stopOrders.Count == 0)
+            {
+                SetOrderStatus("No active SL orders for BE");
+                return;
+            }
+
+            try
+            {
+                foreach (Order order in stopOrders)
+                    order.StopPriceChanged = breakEvenPrice;
+
+                account.Change(stopOrders);
+                SetOrderStatus($"BE set: {breakEvenPrice:F2} (+{BreakEvenBufferTicks}t)");
+            }
+            catch (Exception ex)
+            {
+                SetOrderStatus($"BE error: {ex.Message}");
+            }
+        }
+
+        private void CloseInstrumentPosition()
+        {
+            if (ShouldSuppressFastTradeClick())
+                return;
+
+            Account account = ResolveOrderAccount();
+            Instrument instrument = GetChartInstrument();
+            if (account == null || instrument == null)
+            {
+                SetOrderStatus(account == null ? "Allowed account unavailable" : "Chart instrument not found");
+                return;
+            }
+
+            try
+            {
+                account.Flatten(new[] { instrument });
+                SetOrderStatus("Flatten submitted");
+            }
+            catch (Exception ex)
+            {
+                SetOrderStatus($"Close error: {ex.Message}");
+            }
+        }
+
+        private double GetBreakEvenStopPrice(Position position)
+        {
+            if (position == null)
+                return 0;
+
+            double buffer = Math.Max(0, BreakEvenBufferTicks) * TickSize;
+            double price = position.MarketPosition == MarketPosition.Long
+                ? position.AveragePrice + buffer
+                : position.AveragePrice - buffer;
+
+            return RoundToTick(price);
+        }
+
         private void SubmitPanelOrder(MpPanelDirection side)
         {
+            if (ShouldSuppressFastTradeClick())
+                return;
+
             if (!EnableOrderSubmission)
             {
                 SetOrderStatus("Order submission disabled");
+                return;
+            }
+
+            if (HasPendingPanelEntryOrder())
+            {
+                SetOrderStatus("Entry order already pending");
                 return;
             }
 
@@ -1944,13 +2157,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             Account account = ResolveOrderAccount();
             if (account == null)
             {
-                SetOrderStatus($"Account not found: {OrderAccountName}");
-                return;
-            }
-
-            if (SimulationAccountsOnly && !IsSimulationAccount(account))
-            {
-                SetOrderStatus($"Blocked non-sim account: {account.Name}");
+                SetOrderStatus(string.IsNullOrWhiteSpace(OrderAccountName) ? "Chart Trader account unavailable" : $"Account not found: {OrderAccountName}");
                 return;
             }
 
@@ -1958,6 +2165,18 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             if (instrument == null)
             {
                 SetOrderStatus("Chart instrument not found");
+                return;
+            }
+
+            if (HasOpenPositionOnInstrument(account, instrument))
+            {
+                SetOrderStatus("Position already open");
+                return;
+            }
+
+            if (HasActivePanelOrdersOnInstrument(account, instrument))
+            {
+                SetOrderStatus("Panel orders already active");
                 return;
             }
 
@@ -2029,24 +2248,143 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return cmp < 0 ? OrderType.StopMarket : OrderType.Limit;
         }
 
-        private Account ResolveOrderAccount()
+        private bool HasPendingPanelEntryOrder()
         {
-            lock (Account.All)
-            {
-                if (!string.IsNullOrWhiteSpace(OrderAccountName))
-                {
-                    Account configured = Account.All.FirstOrDefault(account => string.Equals(account.Name, OrderAccountName.Trim(), StringComparison.OrdinalIgnoreCase));
-                    if (configured != null)
-                        return configured;
-                }
+            lock (orderLock)
+                return pendingBrackets.Count > 0;
+        }
 
-                return Account.All.FirstOrDefault(IsSimulationAccount);
+        private bool HasOpenPositionOnInstrument(Account account, Instrument instrument)
+        {
+            Position position = GetOpenPositionOnInstrument(account, instrument);
+            return position != null;
+        }
+
+        private Position GetOpenPositionOnInstrument(Account account, Instrument instrument)
+        {
+            if (account == null || instrument == null)
+                return null;
+
+            try
+            {
+                lock (account.Positions)
+                {
+                    Position position = account.Positions.FirstOrDefault(item => IsSameInstrument(item.Instrument, instrument));
+                    return position != null && position.MarketPosition != MarketPosition.Flat && position.Quantity > 0 ? position : null;
+                }
+            }
+            catch
+            {
+                return null;
             }
         }
 
-        private bool IsSimulationAccount(Account account)
+        private bool HasActivePanelOrdersOnInstrument(Account account, Instrument instrument)
         {
-            return account != null && !string.IsNullOrWhiteSpace(account.Name) && account.Name.StartsWith("Sim", StringComparison.OrdinalIgnoreCase);
+            if (account == null || instrument == null)
+                return false;
+
+            try
+            {
+                lock (account.Orders)
+                    return account.Orders.Any(order => IsSameInstrument(order.Instrument, instrument) && IsPanelOrder(order) && IsActiveOrderState(order.OrderState));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private List<Order> GetActiveStopOrdersForPosition(Account account, Instrument instrument, MarketPosition marketPosition)
+        {
+            if (account == null || instrument == null || marketPosition == MarketPosition.Flat)
+                return new List<Order>();
+
+            try
+            {
+                lock (account.Orders)
+                {
+                    return account.Orders
+                        .Where(order => IsSameInstrument(order.Instrument, instrument)
+                            && IsActiveOrderState(order.OrderState)
+                            && (order.OrderType == OrderType.StopMarket || order.OrderType == OrderType.StopLimit)
+                            && IsProtectiveStopAction(order, marketPosition))
+                        .ToList();
+                }
+            }
+            catch
+            {
+                return new List<Order>();
+            }
+        }
+
+        private bool IsProtectiveStopAction(Order order, MarketPosition marketPosition)
+        {
+            if (order == null)
+                return false;
+
+            if (marketPosition == MarketPosition.Long)
+                return order.OrderAction == OrderAction.Sell;
+
+            if (marketPosition == MarketPosition.Short)
+                return order.OrderAction == OrderAction.BuyToCover;
+
+            return false;
+        }
+
+        private bool IsPanelOrder(Order order)
+        {
+            return order != null
+                && !string.IsNullOrWhiteSpace(order.Name)
+                && order.Name.StartsWith("MrRexo", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsActiveOrderState(OrderState orderState)
+        {
+            return orderState != OrderState.Filled
+                && orderState != OrderState.Cancelled
+                && orderState != OrderState.Rejected;
+        }
+
+        private bool IsSameInstrument(Instrument a, Instrument b)
+        {
+            if (a == null || b == null)
+                return false;
+
+            return string.Equals(a.FullName, b.FullName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private Account ResolveOrderAccount()
+        {
+            string accountName = string.IsNullOrWhiteSpace(OrderAccountName)
+                ? GetChartTraderAccountName()
+                : OrderAccountName.Trim();
+            if (string.IsNullOrWhiteSpace(accountName))
+                return null;
+
+            lock (Account.All)
+                return Account.All.FirstOrDefault(account => string.Equals(account.Name, accountName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private string GetChartTraderAccountName()
+        {
+            ChartControl chartControl = lastChartControl;
+            if (chartControl == null)
+                return string.Empty;
+
+            try
+            {
+                Window window = Window.GetWindow(chartControl);
+                if (window == null)
+                    return string.Empty;
+
+                DependencyObject accountControl = FindChartTraderAccountControl(window);
+                return accountControl == null ? string.Empty : ReadAccountName(accountControl);
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private Instrument GetChartInstrument()
@@ -2223,7 +2561,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private bool IsPointInTradeSideButtons(Point point)
         {
-            return buyButton.Contains(point) || sellButton.Contains(point);
+            return buyButton.Contains(point)
+                || sellButton.Contains(point)
+                || breakEvenButton.Contains(point)
+                || closePositionButton.Contains(point);
         }
 
         private string GetBuyButtonLabel()
@@ -2325,6 +2666,19 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return true;
 
             lastTargetLevelsButtonClick = now;
+            return false;
+        }
+
+        private bool ShouldSuppressFastTradeClick()
+        {
+            DateTime now = DateTime.UtcNow;
+            if ((now - lastTradeButtonClick).TotalMilliseconds < 1200)
+            {
+                SetOrderStatus("Trade click ignored");
+                return true;
+            }
+
+            lastTradeButtonClick = now;
             return false;
         }
 
