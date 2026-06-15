@@ -6,6 +6,14 @@ MrRexoRR is a NinjaTrader 8 Drawing Tool designed for futures traders who want a
 
 > This project is trading software. It is not financial advice. Futures trading involves substantial risk of loss. Test on Playback or a non-live environment before using any order submission features.
 
+## As-Is Software
+
+MrRexoRR is open-source software provided **as is**, without warranty of any kind.
+
+You can inspect, audit, modify, and extend the source code before using it. By using this software, you accept full responsibility for your NinjaTrader installation, workspace, account selection, market data, broker behavior, order submission, trade management, and trading results.
+
+If you do not understand the code or do not accept these terms, do not use the software for order submission.
+
 ## Status
 
 MrRexoRR is currently a community/free version under active development.

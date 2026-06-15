@@ -25,4 +25,16 @@ Known risk areas include, but are not limited to:
 - unsupported NinjaTrader versions,
 - user modifications to source code.
 
-This project is provided as-is, without warranty. Use it at your own risk.
+## As-Is / No Warranty
+
+This project is provided as-is, without warranty of any kind, express or implied.
+
+The authors and contributors do not guarantee that the software is correct, complete, safe for live trading, compatible with every NinjaTrader version, compatible with every broker, compatible with every prop firm, or free from defects.
+
+You can inspect, audit, modify, and extend the source code before using it. By using this software, you accept full responsibility for your NinjaTrader installation, workspace configuration, account selection, market data, broker behavior, order submission, trade management, and trading results.
+
+The authors and contributors are not liable for trading losses, missed profits, account violations, platform errors, rejected orders, duplicate orders, incorrect fills, data-feed issues, broker-side behavior, or any direct, indirect, incidental, consequential, special, exemplary, or punitive damages arising from the use of this software.
+
+If you do not understand the code or do not accept these terms, do not use the software for order submission.
+
+This disclaimer is not legal advice. If you need legal protection for commercial distribution or public release, consult a qualified lawyer in your jurisdiction.
