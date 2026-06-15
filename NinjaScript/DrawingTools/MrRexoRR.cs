@@ -2168,15 +2168,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return;
             }
 
-            if (HasOpenPositionOnInstrument(account, instrument))
+            if (HasActivePanelEntryOrdersOnInstrument(account, instrument))
             {
-                SetOrderStatus("Position already open");
-                return;
-            }
-
-            if (HasActivePanelOrdersOnInstrument(account, instrument))
-            {
-                SetOrderStatus("Panel orders already active");
+                SetOrderStatus("Panel entry order already active");
                 return;
             }
 
@@ -2279,7 +2273,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             }
         }
 
-        private bool HasActivePanelOrdersOnInstrument(Account account, Instrument instrument)
+        private bool HasActivePanelEntryOrdersOnInstrument(Account account, Instrument instrument)
         {
             if (account == null || instrument == null)
                 return false;
@@ -2287,7 +2281,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             try
             {
                 lock (account.Orders)
-                    return account.Orders.Any(order => IsSameInstrument(order.Instrument, instrument) && IsPanelOrder(order) && IsActiveOrderState(order.OrderState));
+                    return account.Orders.Any(order => IsSameInstrument(order.Instrument, instrument) && IsPanelEntryOrder(order) && IsActiveOrderState(order.OrderState));
             }
             catch
             {
@@ -2337,6 +2331,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return order != null
                 && !string.IsNullOrWhiteSpace(order.Name)
                 && order.Name.StartsWith("MrRexo", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsPanelEntryOrder(Order order)
+        {
+            return IsPanelOrder(order)
+                && (order.Name.IndexOf("Long Entry", StringComparison.OrdinalIgnoreCase) >= 0
+                    || order.Name.IndexOf("Short Entry", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private bool IsActiveOrderState(OrderState orderState)
