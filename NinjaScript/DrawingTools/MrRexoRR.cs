@@ -24,7 +24,7 @@ using NinjaTrader.NinjaScript.DrawingTools;
 
 namespace NinjaTrader.NinjaScript.DrawingTools
 {
-    public enum MpPanelDirection
+    public enum MrRexoFreePanelDirection
     {
         Long,
         Short
@@ -42,7 +42,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         FromOP
     }
 
-    public enum MpPanelLanguage
+    public enum MrRexoFreePanelLanguage
     {
         PL,
         EN,
@@ -113,7 +113,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private class PendingBracket
         {
-            public MpPanelDirection Direction { get; set; }
+            public MrRexoFreePanelDirection Direction { get; set; }
             public double StopPrice { get; set; }
             public List<double> TargetPrices { get; set; }
             public int[] TargetQuantities { get; set; }
@@ -139,7 +139,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         [NinjaScriptProperty]
         [Browsable(false)]
-        public MpPanelDirection Direction { get; set; }
+        public MrRexoFreePanelDirection Direction { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "Tick value", GroupName = "Instrument", Order = 10)]
@@ -163,7 +163,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         [NinjaScriptProperty]
         [Display(Name = "Panel language", GroupName = "Parameters", Order = 0)]
-        public MpPanelLanguage PanelLanguage { get; set; }
+        public MrRexoFreePanelLanguage PanelLanguage { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "TP mode", GroupName = "Parameters", Order = 5)]
@@ -212,12 +212,12 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 EnableOrderSubmission = true;
                 OrderAccountName = string.Empty;
                 BreakEvenBufferTicks = 1;
-                PanelLanguage = MpPanelLanguage.EN;
+                PanelLanguage = MrRexoFreePanelLanguage.EN;
                 TargetMode = MpTargetMode.Single;
                 TargetLevels = 1;
                 ShiftSnapPoints = 0;
                 ShiftSnapMode = MpShiftSnapMode.EvenPrice;
-                Direction = MpPanelDirection.Long;
+                Direction = MrRexoFreePanelDirection.Long;
                 StartAttachedToCurrentPrice = true;
                 SyncChartTraderQuantity = true;
                 TickSize = 0.25;
@@ -599,7 +599,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double stopHeaderY = stop.Y < entry.Y ? stop.Y - headerHeight : stop.Y;
             double profitSummaryY;
             double riskSummaryY;
-            if (Direction == MpPanelDirection.Short)
+            if (Direction == MrRexoFreePanelDirection.Short)
             {
                 double bottomTargetY = targetPoints.Max(tp => tp.Y);
                 double bottomTargetHeaderY = bottomTargetY < entry.Y ? bottomTargetY - headerHeight : bottomTargetY;
@@ -615,10 +615,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             }
 
             const double halfEntryBarHeight = 15.0;
-            double riskBlockTop = Direction == MpPanelDirection.Short
+            double riskBlockTop = Direction == MrRexoFreePanelDirection.Short
                 ? stopHeaderY + headerHeight
                 : entry.Y + halfEntryBarHeight;
-            double riskBlockBottom = Direction == MpPanelDirection.Short
+            double riskBlockBottom = Direction == MrRexoFreePanelDirection.Short
                 ? entry.Y - halfEntryBarHeight
                 : stopHeaderY;
             if (riskBlockBottom - riskBlockTop >= 80)
@@ -648,7 +648,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private void DrawDirectionButton(ChartControl chartControl, double left, double entryY)
         {
             directionButton = new Rect(left + 6, entryY - 11, 30, 22);
-            DrawButton(chartControl, directionButton, Direction == MpPanelDirection.Long ? "L" : "S");
+            DrawButton(chartControl, directionButton, Direction == MrRexoFreePanelDirection.Long ? "L" : "S");
         }
 
         private void DrawAttachToPriceButton(ChartControl chartControl, double left, double entryY)
@@ -694,7 +694,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawButton(chartControl, sellButton, GetSellButtonLabel(), new SharpDX.Color4(0.58f, 0.04f, 0.08f, 0.96f));
             DrawButton(chartControl, breakEvenButton, "BE", new SharpDX.Color4(0.02f, 0.28f, 0.54f, 0.96f));
             DrawButton(chartControl, closePositionButton, "CLOSE", new SharpDX.Color4(0.72f, 0.24f, 0.00f, 0.96f));
-            DrawButton(chartControl, toolbarDirectionButton, Direction == MpPanelDirection.Long ? "L" : "S");
+            DrawButton(chartControl, toolbarDirectionButton, Direction == MrRexoFreePanelDirection.Long ? "L" : "S");
             DrawButton(chartControl, targetLevelsButton, $"TP{GetEffectiveTargetLevels()}");
             DrawButton(chartControl, preset1Button, "1");
             DrawButton(chartControl, preset2Button, "2");
@@ -810,7 +810,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double target2Distance = RoundToTick(finalTargetDistance * 2.0 / 3.0);
             double target3Distance = finalTargetDistance;
 
-            if (Direction == MpPanelDirection.Long)
+            if (Direction == MrRexoFreePanelDirection.Long)
             {
                 stopAnchor.Price = RoundToTick(entryAnchor.Price - stopDistance);
                 targetAnchor.Price = RoundToTick(entryAnchor.Price + target1Distance);
@@ -853,12 +853,12 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             double minDistance = GetMinimumDistanceFromEntry();
             if (Math.Abs(target2Anchor.Price - entryAnchor.Price) < minDistance)
-                target2Anchor.Price = Direction == MpPanelDirection.Long
+                target2Anchor.Price = Direction == MrRexoFreePanelDirection.Long
                     ? RoundToTick(entryAnchor.Price + Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 1.5))
                     : RoundToTick(entryAnchor.Price - Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 1.5));
 
             if (Math.Abs(target3Anchor.Price - entryAnchor.Price) < minDistance)
-                target3Anchor.Price = Direction == MpPanelDirection.Long
+                target3Anchor.Price = Direction == MrRexoFreePanelDirection.Long
                     ? RoundToTick(entryAnchor.Price + Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 2.0))
                     : RoundToTick(entryAnchor.Price - Math.Max(minDistance, Math.Abs(targetAnchor.Price - entryAnchor.Price) * 2.0));
 
@@ -923,7 +923,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double minDistance = GetMinimumDistanceFromEntry();
             finalDistance = Math.Max(finalDistance, minDistance * levels);
 
-            double directionSign = Direction == MpPanelDirection.Long ? 1.0 : -1.0;
+            double directionSign = Direction == MrRexoFreePanelDirection.Long ? 1.0 : -1.0;
             targetAnchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance / levels);
             target2Anchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance * 2.0 / levels);
             target3Anchor.Price = RoundToTick(entryAnchor.Price + directionSign * finalDistance);
@@ -1279,7 +1279,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             double distance = Math.Abs(price - entryAnchor.Price);
             double snappedDistance = Math.Max(step, Math.Round(distance / step, MidpointRounding.AwayFromZero) * step);
-            bool shouldBeAboveEntry = Direction == MpPanelDirection.Long ? isTarget : !isTarget;
+            bool shouldBeAboveEntry = Direction == MrRexoFreePanelDirection.Long ? isTarget : !isTarget;
             double snappedPrice = shouldBeAboveEntry
                 ? entryAnchor.Price + snappedDistance
                 : entryAnchor.Price - snappedDistance;
@@ -1300,7 +1300,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         {
             double minDistance = GetMinimumDistanceFromEntry();
 
-            if (Direction == MpPanelDirection.Long)
+            if (Direction == MrRexoFreePanelDirection.Long)
                 return RoundToTick(Math.Min(price, entryAnchor.Price - minDistance));
 
             return RoundToTick(Math.Max(price, entryAnchor.Price + minDistance));
@@ -1310,7 +1310,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         {
             double minDistance = GetMinimumDistanceFromEntry();
 
-            if (Direction == MpPanelDirection.Long)
+            if (Direction == MrRexoFreePanelDirection.Long)
                 return RoundToTick(Math.Max(price, entryAnchor.Price + minDistance));
 
             return RoundToTick(Math.Min(price, entryAnchor.Price - minDistance));
@@ -2027,7 +2027,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             editingAnchor = null;
             suppressNextMouseUpSelection = true;
 
-            Direction = Direction == MpPanelDirection.Long ? MpPanelDirection.Short : MpPanelDirection.Long;
+            Direction = Direction == MrRexoFreePanelDirection.Long ? MrRexoFreePanelDirection.Short : MrRexoFreePanelDirection.Long;
             FlipStopAndTargetAroundEntry();
         }
 
@@ -2042,9 +2042,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             suppressNextMouseUpSelection = true;
 
             if (buyButton.Contains(point))
-                SubmitPanelOrder(MpPanelDirection.Long);
+                SubmitPanelOrder(MrRexoFreePanelDirection.Long);
             else if (sellButton.Contains(point))
-                SubmitPanelOrder(MpPanelDirection.Short);
+                SubmitPanelOrder(MrRexoFreePanelDirection.Short);
             else if (breakEvenButton.Contains(point))
                 MoveStopsToBreakEven();
             else if (closePositionButton.Contains(point))
@@ -2132,7 +2132,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return RoundToTick(price);
         }
 
-        private void SubmitPanelOrder(MpPanelDirection side)
+        private void SubmitPanelOrder(MrRexoFreePanelDirection side)
         {
             if (ShouldSuppressFastTradeClick())
                 return;
@@ -2187,11 +2187,11 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             EnsureOrderAccountSubscribed(account);
 
-            OrderAction action = side == MpPanelDirection.Long ? OrderAction.Buy : OrderAction.SellShort;
+            OrderAction action = side == MrRexoFreePanelDirection.Long ? OrderAction.Buy : OrderAction.SellShort;
             OrderType orderType = GetEntryOrderType(side, currentPrice);
             double limitPrice = orderType == OrderType.Limit ? entryAnchor.Price : 0;
             double stopPrice = orderType == OrderType.StopMarket ? entryAnchor.Price : 0;
-            string entryName = side == MpPanelDirection.Long ? "MrRexo Long Entry" : "MrRexo Short Entry";
+            string entryName = side == MrRexoFreePanelDirection.Long ? "MrRexo Long Entry" : "MrRexo Short Entry";
 
             try
             {
@@ -2216,7 +2216,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             }
         }
 
-        private bool ValidateOrderGeometry(MpPanelDirection side)
+        private bool ValidateOrderGeometry(MrRexoFreePanelDirection side)
         {
             if (entryAnchor == null || stopAnchor == null || targetAnchor == null)
             {
@@ -2224,23 +2224,23 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return false;
             }
 
-            bool valid = side == MpPanelDirection.Long
+            bool valid = side == MrRexoFreePanelDirection.Long
                 ? stopAnchor.Price < entryAnchor.Price && GetActiveTargetAnchors().All(anchor => anchor.Price > entryAnchor.Price)
                 : stopAnchor.Price > entryAnchor.Price && GetActiveTargetAnchors().All(anchor => anchor.Price < entryAnchor.Price);
 
             if (!valid)
-                SetOrderStatus(side == MpPanelDirection.Long ? "BUY needs SL below OP and TP above OP" : "SELL needs SL above OP and TP below OP");
+                SetOrderStatus(side == MrRexoFreePanelDirection.Long ? "BUY needs SL below OP and TP above OP" : "SELL needs SL above OP and TP below OP");
 
             return valid;
         }
 
-        private OrderType GetEntryOrderType(MpPanelDirection side, double currentPrice)
+        private OrderType GetEntryOrderType(MrRexoFreePanelDirection side, double currentPrice)
         {
             int cmp = ComparePrices(entryAnchor.Price, currentPrice);
             if (cmp == 0)
                 return OrderType.Market;
 
-            if (side == MpPanelDirection.Long)
+            if (side == MrRexoFreePanelDirection.Long)
                 return cmp > 0 ? OrderType.StopMarket : OrderType.Limit;
 
             return cmp < 0 ? OrderType.StopMarket : OrderType.Limit;
@@ -2450,7 +2450,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             int filledQuantity = filledEntry.Filled > 0 ? filledEntry.Filled : filledEntry.Quantity;
             int[] targetQuantities = AllocateExitQuantities(filledQuantity, bracket.TargetQuantities);
-            OrderAction exitAction = bracket.Direction == MpPanelDirection.Long ? OrderAction.Sell : OrderAction.BuyToCover;
+            OrderAction exitAction = bracket.Direction == MrRexoFreePanelDirection.Long ? OrderAction.Sell : OrderAction.BuyToCover;
             List<Order> exitOrders = new List<Order>();
 
             try
@@ -2522,7 +2522,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             if (Math.Abs(finalTargetOffsetFromEntry) < TickSize)
                 finalTargetOffsetFromEntry = GetCurrentFinalTargetPrice() - entryAnchor.Price;
 
-            if (Direction == MpPanelDirection.Long)
+            if (Direction == MrRexoFreePanelDirection.Long)
             {
                 stopAnchor.Price = RoundToTick(entryAnchor.Price - stopDistance);
                 for (int i = 0; i < targetDistances.Count; i++)
@@ -2597,7 +2597,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         {
             switch (PanelLanguage)
             {
-                case MpPanelLanguage.EN:
+                case MrRexoFreePanelLanguage.EN:
                     switch (key)
                     {
                         case "Buy": return "BUY";
@@ -2609,7 +2609,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                         case "IK": return "QTY";
                     }
                     break;
-                case MpPanelLanguage.DE:
+                case MrRexoFreePanelLanguage.DE:
                     switch (key)
                     {
                         case "Buy": return "KAUF";
