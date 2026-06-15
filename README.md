@@ -1,5 +1,11 @@
 # MrRexoRR-NT8
 
+![NinjaTrader 8](https://img.shields.io/badge/NinjaTrader-8-orange)
+![Status](https://img.shields.io/badge/status-community%20edition-blue)
+![License](https://img.shields.io/github/license/MrRexo/MrRexoRR-NT8)
+![Last commit](https://img.shields.io/github/last-commit/MrRexo/MrRexoRR-NT8)
+![Trading risk](https://img.shields.io/badge/trading-risk%20warning-red)
+
 Interactive risk/reward and bracket order panel for NinjaTrader 8.
 
 MrRexoRR is a NinjaTrader 8 Drawing Tool designed for futures traders who want a fast, chart-first workflow for planning entries, stops, targets, position size, and optional bracket execution.
