@@ -17,5 +17,3 @@ Recommended filenames:
 - `03-order-toolbar.png`
 - `04-bracket-orders.png`
 - `05-break-even-close.png`
-
-See `docs/screenshots.md` for the capture scenario.

@@ -44,8 +44,6 @@ Screenshots should be captured from Playback or a non-live environment and must 
 
 ![Order toolbar](assets/screenshots/03-order-toolbar.png)
 
-See [Screenshot Guide](docs/screenshots.md).
-
 ## Requirements
 
 - NinjaTrader 8 Desktop
