@@ -36,7 +36,15 @@ The current NinjaScript tool includes:
 
 ## Screenshots
 
-Screenshots will be added after the first public release build is stabilized.
+Screenshots should be captured from Playback or a non-live environment and must not expose account numbers, balances, broker identifiers, or personal information.
+
+Planned screenshot locations:
+
+- `assets/screenshots/01-panel-overview.png`
+- `assets/screenshots/02-multi-tp-mode.png`
+- `assets/screenshots/03-order-toolbar.png`
+
+See [Screenshot Guide](docs/screenshots.md).
 
 ## Requirements
 
