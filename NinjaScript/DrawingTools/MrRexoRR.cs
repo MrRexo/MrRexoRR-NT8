@@ -86,6 +86,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private Rect sellButton;
         private Rect breakEvenButton;
         private Rect closePositionButton;
+        private Rect panelVisibilityButton;
         private Rect toolbarDirectionButton;
         private Rect targetLevelsButton;
         private Rect targetDragRect;
@@ -94,6 +95,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         private Rect entryDragRect;
         private Rect stopDragRect;
         private bool suppressNextMouseUpSelection;
+        private bool isRiskPanelHidden;
         private DateTime lastQuantityButtonClick = DateTime.MinValue;
         private DateTime lastPanelQuantityWrite = DateTime.MinValue;
         private DateTime lastTargetLevelsButtonClick = DateTime.MinValue;
@@ -339,6 +341,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 if (TryHandleTradeSideButton(point))
                     return;
 
+                if (TryHandlePanelVisibilityButton(point))
+                    return;
+
                 if (TryHandleToolbarDirectionButton(point))
                     return;
 
@@ -347,6 +352,12 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
                 if (TryHandleDirectionButton(point))
                     return;
+
+                if (isRiskPanelHidden)
+                {
+                    IsSelected = false;
+                    return;
+                }
 
                 editingAnchor = GetPanelDragAnchor(chartScale, point);
 
@@ -457,8 +468,11 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             if (DrawingState == DrawingState.Building)
                 return Cursors.Pen;
 
-            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
+            if (IsPointInToolbarButtons(point) || IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
                 return Cursors.Hand;
+
+            if (isRiskPanelHidden)
+                return null;
 
             ChartAnchor closestAnchor = GetPanelDragAnchor(chartScale, point);
             return closestAnchor == null ? null : Cursors.SizeNS;
@@ -498,9 +512,32 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double top = Math.Min(stop.Y, targetPoints.Min(tp => tp.Y));
             double bottom = Math.Max(stop.Y, targetPoints.Max(tp => tp.Y));
 
-            DrawPanelBackground(chartControl, left, right, top, bottom, entry.Y, targetPoints, stop.Y);
-            DrawVirtualLevelLines(left, targetPoints, stop.Y);
-            DrawPanelLabels(chartControl, left, right, entry, stop, targetPoints);
+            if (isRiskPanelHidden)
+            {
+                ClearPanelInteractionRects();
+            }
+            else
+            {
+                DrawPanelBackground(chartControl, left, right, top, bottom, entry.Y, targetPoints, stop.Y);
+                DrawVirtualLevelLines(left, targetPoints, stop.Y);
+                DrawPanelLabels(chartControl, left, right, entry, stop, targetPoints);
+            }
+
+            DrawPresetButtons(chartControl);
+        }
+
+        private void ClearPanelInteractionRects()
+        {
+            targetDragRect = Rect.Empty;
+            target2DragRect = Rect.Empty;
+            target3DragRect = Rect.Empty;
+            entryDragRect = Rect.Empty;
+            stopDragRect = Rect.Empty;
+            directionButton = Rect.Empty;
+            attachToPriceButton = Rect.Empty;
+            qtyMinusButton = Rect.Empty;
+            qtyValueBox = Rect.Empty;
+            qtyPlusButton = Rect.Empty;
         }
 
         private void DrawVirtualLevelLines(double panelLeft, List<Point> targetPoints, double stopY)
@@ -641,7 +678,6 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawText(chartControl, $"OP: {entryAnchor.Price:F2}  K: {Quantity}  [R:R {rr:F2}]", left, entry.Y - 10, panelWidth, 22, true, true);
             DrawText(chartControl, $"SL: {stopAnchor.Price:F2}", left, stopLabelY, panelWidth, 22, true, true);
             DrawText(chartControl, $"{T("Risk")}: {stopTicks:F0} {T("Ticks")} / {risk:F2}$", left, riskSummaryY, panelWidth, 22, false, true);
-            DrawPresetButtons(chartControl);
             DrawDirectionButton(chartControl, left, entry.Y);
             DrawAttachToPriceButton(chartControl, left, entry.Y);
             DrawQuantityButtons(chartControl, right, entry.Y);
@@ -668,9 +704,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double gap = 3;
             double tradeWidth = 72;
             double actionWidth = 52;
+            double visibilityWidth = 48;
             double directionWidth = 30;
             double targetLevelsWidth = 38;
-            double totalWidth = tradeWidth + gap + tradeWidth + gap + actionWidth + gap + actionWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
+            double totalWidth = tradeWidth + gap + tradeWidth + gap + actionWidth + gap + actionWidth + gap + visibilityWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31;
             double padding = 6;
             double toolbarWidth = totalWidth + 2 * padding;
             double toolbarHeight = h + 2 * padding;
@@ -684,7 +721,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             sellButton = new Rect(buyButton.Right + gap, y, tradeWidth, h);
             breakEvenButton = new Rect(sellButton.Right + gap, y, actionWidth, h);
             closePositionButton = new Rect(breakEvenButton.Right + gap, y, actionWidth, h);
-            toolbarDirectionButton = new Rect(closePositionButton.Right + 12, y, directionWidth, h);
+            panelVisibilityButton = new Rect(closePositionButton.Right + gap, y, visibilityWidth, h);
+            toolbarDirectionButton = new Rect(panelVisibilityButton.Right + 12, y, directionWidth, h);
             targetLevelsButton = new Rect(toolbarDirectionButton.Right + gap, y, targetLevelsWidth, h);
             preset1Button = new Rect(targetLevelsButton.Right + 12, y, 24, h);
             preset2Button = new Rect(preset1Button.Right + gap, y, 24, h);
@@ -696,6 +734,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawButton(chartControl, sellButton, GetSellButtonLabel(), new SharpDX.Color4(0.58f, 0.04f, 0.08f, 0.96f));
             DrawButton(chartControl, breakEvenButton, "BE", new SharpDX.Color4(0.02f, 0.28f, 0.54f, 0.96f));
             DrawButton(chartControl, closePositionButton, "CLOSE", new SharpDX.Color4(0.72f, 0.24f, 0.00f, 0.96f));
+            DrawButton(chartControl, panelVisibilityButton, isRiskPanelHidden ? "SHOW" : "HIDE", new SharpDX.Color4(0.28f, 0.20f, 0.54f, 0.96f));
             DrawButton(chartControl, toolbarDirectionButton, Direction == MrRexoFreePanelDirection.Long ? "L" : "S");
             DrawButton(chartControl, targetLevelsButton, $"TP{GetEffectiveTargetLevels()}");
             DrawButton(chartControl, preset1Button, "1");
@@ -1385,7 +1424,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
         private ChartAnchor GetPanelDragAnchor(ChartScale chartScale, Point point)
         {
-            if (IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
+            if (isRiskPanelHidden || IsPointInToolbarButtons(point) || IsPointInQuantityButtons(point) || IsPointInPresetButtons(point) || directionButton.Contains(point) || toolbarDirectionButton.Contains(point) || targetLevelsButton.Contains(point) || attachToPriceButton.Contains(point) || IsPointInTradeSideButtons(point))
                 return null;
 
             if (targetDragRect.Contains(point))
@@ -1998,6 +2037,19 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             return true;
         }
 
+        private bool TryHandlePanelVisibilityButton(Point point)
+        {
+            if (!panelVisibilityButton.Contains(point))
+                return false;
+
+            DrawingState = DrawingState.Normal;
+            IsSelected = false;
+            editingAnchor = null;
+            suppressNextMouseUpSelection = true;
+            isRiskPanelHidden = !isRiskPanelHidden;
+            return true;
+        }
+
         private bool TryHandleTargetLevelsButton(Point point)
         {
             if (!targetLevelsButton.Contains(point))
@@ -2566,6 +2618,11 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 || sellButton.Contains(point)
                 || breakEvenButton.Contains(point)
                 || closePositionButton.Contains(point);
+        }
+
+        private bool IsPointInToolbarButtons(Point point)
+        {
+            return panelVisibilityButton.Contains(point);
         }
 
         private string GetBuyButtonLabel()
