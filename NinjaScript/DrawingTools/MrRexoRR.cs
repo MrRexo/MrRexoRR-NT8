@@ -2498,11 +2498,25 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return;
             }
 
+            HideRiskPanelAfterEntryFill();
+
             Account account = sender as Account ?? subscribedOrderAccount;
             if (account == null)
                 return;
 
             SubmitProtectionOrders(account, e.Order, bracket);
+        }
+
+        private void HideRiskPanelAfterEntryFill()
+        {
+            isRiskPanelHidden = true;
+            DrawingState = DrawingState.Normal;
+            IsSelected = false;
+            editingAnchor = null;
+            ClearPanelInteractionRects();
+
+            ChartControl chartControl = lastChartControl;
+            chartControl?.Dispatcher?.BeginInvoke(new Action(() => chartControl.InvalidateVisual()));
         }
 
         private void SubmitProtectionOrders(Account account, Order filledEntry, PendingBracket bracket)
