@@ -665,13 +665,20 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
             List<ChartAnchor> targets = GetActiveTargetAnchors();
             int[] splits = GetTargetQuantitySplit();
+            bool showCumulativeTargetReward = targets.Count > 1;
+            double cumulativeTargetReward = 0;
             for (int i = 0; i < targets.Count; i++)
             {
                 if (splits[i] <= 0)
                     continue;
 
+                cumulativeTargetReward += CalculateMoney(CalculateTicks(entryAnchor.Price, targets[i].Price), splits[i]);
+                string targetLabel = $"TP{i + 1}: {targets[i].Price:F2}  K:{splits[i]}";
+                if (showCumulativeTargetReward)
+                    targetLabel += $"  Σ:{cumulativeTargetReward:F2}$";
+
                 double targetLabelY = targetPoints[i].Y < entry.Y ? targetPoints[i].Y - 24 : targetPoints[i].Y + 4;
-                DrawText(chartControl, $"TP{i + 1}: {targets[i].Price:F2}  K:{splits[i]}", left, targetLabelY, panelWidth, 22, true, true);
+                DrawText(chartControl, targetLabel, left, targetLabelY, panelWidth, 22, true, true);
             }
 
             DrawText(chartControl, $"{T("TotalProfit")}: {reward:F2}$", left, profitSummaryY, panelWidth, 22, false, true);
