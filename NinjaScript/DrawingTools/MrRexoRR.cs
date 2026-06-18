@@ -2267,6 +2267,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                     pendingBrackets[entryOrder] = bracket;
 
                 account.Submit(new[] { entryOrder });
+                HideRiskPanel();
                 SetOrderStatus($"{entryName}: {orderType} x{Quantity}");
             }
             catch (Exception ex)
@@ -2502,7 +2503,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 return;
             }
 
-            HideRiskPanelAfterEntryFill();
+            HideRiskPanel();
 
             Account account = sender as Account ?? subscribedOrderAccount;
             if (account == null)
@@ -2511,7 +2512,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             SubmitProtectionOrders(account, e.Order, bracket);
         }
 
-        private void HideRiskPanelAfterEntryFill()
+        private void HideRiskPanel()
         {
             isRiskPanelHidden = true;
             DrawingState = DrawingState.Normal;
