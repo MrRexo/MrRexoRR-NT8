@@ -715,8 +715,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             double visibilityWidth = 48;
             double directionWidth = 30;
             double targetLevelsWidth = 38;
+            double quantityInfoWidth = 48;
             double revisionWidth = 48;
-            double totalWidth = tradeWidth + gap + tradeWidth + gap + actionWidth + gap + actionWidth + gap + visibilityWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31 + 8 + revisionWidth;
+            double totalWidth = tradeWidth + gap + tradeWidth + gap + actionWidth + gap + actionWidth + gap + visibilityWidth + 12 + directionWidth + gap + targetLevelsWidth + 12 + 24 + gap + 24 + gap + 24 + gap + 31 + gap + 31 + 8 + quantityInfoWidth + gap + revisionWidth;
             double padding = 6;
             double toolbarWidth = totalWidth + 2 * padding;
             double toolbarHeight = h + 2 * padding;
@@ -738,7 +739,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             preset5Button = new Rect(preset2Button.Right + gap, y, 24, h);
             preset10Button = new Rect(preset5Button.Right + gap, y, 31, h);
             preset20Button = new Rect(preset10Button.Right + gap, y, 31, h);
-            Rect revisionRect = new Rect(preset20Button.Right + 8, y, revisionWidth, h);
+            Rect quantityInfoRect = new Rect(preset20Button.Right + 8, y, quantityInfoWidth, h);
+            Rect revisionRect = new Rect(quantityInfoRect.Right + gap, y, revisionWidth, h);
 
             DrawButton(chartControl, buyButton, GetBuyButtonLabel(), new SharpDX.Color4(0.00f, 0.42f, 0.22f, 0.96f));
             DrawButton(chartControl, sellButton, GetSellButtonLabel(), new SharpDX.Color4(0.58f, 0.04f, 0.08f, 0.96f));
@@ -752,6 +754,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             DrawButton(chartControl, preset5Button, "5");
             DrawButton(chartControl, preset10Button, "10");
             DrawButton(chartControl, preset20Button, "20");
+            DrawText(chartControl, $"QTY {Quantity}", quantityInfoRect.X, quantityInfoRect.Y, quantityInfoRect.Width, quantityInfoRect.Height, false, true);
             DrawText(chartControl, PanelRevision, revisionRect.X, revisionRect.Y, revisionRect.Width, revisionRect.Height, false, true);
 
             DrawOrderStatus(chartControl, presetsToolbarRect);
